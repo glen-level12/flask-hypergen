@@ -4,6 +4,7 @@ from flask import Blueprint, Response, request
 
 from flask_hypergen import (
     COMMANDS,
+    HypergenResult,
     callback,
     h2,
     hypergen,
@@ -27,8 +28,14 @@ def counter_template(n: int) -> None:
 
 @bp.get('/counter')
 def counter() -> Response:
+    html = hypergen(
+        counter_template,
+        0,
+        settings={'liveview': True, 'base_template': BASE_TEMPLATE},
+    )
+    assert isinstance(html, str)
     return Response(
-        hypergen(counter_template, 0, settings={'liveview': True, 'base_template': BASE_TEMPLATE}),
+        html,
         mimetype='text/html',
     )
 
@@ -41,6 +48,7 @@ def increment():
         n + 1,
         settings={'action': True, 'returns': COMMANDS, 'target_id': 'content'},
     )
+    assert not isinstance(commands, (str, HypergenResult))
     return json_commands_response(commands)
 
 

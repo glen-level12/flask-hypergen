@@ -7,7 +7,7 @@ from datetime import date, datetime
 from datetime import time as dt_time
 from functools import wraps
 import json
-from typing import Any
+from typing import Any, Protocol, TypeGuard, cast
 
 from flask import Blueprint, Flask, Response, current_app, has_app_context
 from flask import request as flask_request
@@ -15,7 +15,9 @@ from flask import request as flask_request
 from flask_hypergen.context import c, context, context_init_app, contextlist
 import flask_hypergen.hypergen as hypergen_mod
 from flask_hypergen.hypergen import (
+    NamedCallable,
     ResolverMatch,
+    RoutableCallable,
     check_perms,
     compare_funcs,
     metastr,
@@ -26,6 +28,7 @@ from flask_hypergen.hypergen import (
 )
 from flask_hypergen.template import (
     FULL,
+    HypergenResult,
     a,
     base_element,
     hypergen,
@@ -129,6 +132,7 @@ def _request_path(request: Any) -> str:
 
 def _static_hypergen_path() -> str:
     if has_app_context() and 'flask_hypergen' in current_app.blueprints:
+        assert ASSETS_BLUEPRINT.static_url_path is not None
         return ASSETS_BLUEPRINT.static_url_path + '/hypergen.js'
     return '/flask_hypergen/static/hypergen.js'
 
@@ -137,7 +141,10 @@ def liveview_resolver_match(for_action: bool = False) -> ResolverMatch | None:
     if not for_action:
         endpoint = getattr(c.request, 'endpoint', None)
         kwargs = getattr(c.request, 'view_args', {}) or {}
-        return ResolverMatch(func=hypergen_mod._ENDPOINTS.get(endpoint), kwargs=kwargs)
+        kwargs_dict = kwargs if isinstance(kwargs, dict) else {}
+        if isinstance(endpoint, str):
+            return ResolverMatch(func=hypergen_mod._ENDPOINTS.get(endpoint), kwargs=kwargs_dict)
+        return ResolverMatch(func=None, kwargs=kwargs_dict)
     for header in ['X-Pathname', 'Referer']:
         value = _request_header(c.request, header)
         if value:
@@ -148,7 +155,7 @@ def liveview_resolver_match(for_action: bool = False) -> ResolverMatch | None:
 def url_is_active(url: str) -> bool:
     current = context.hypergen.liveview_resolver_match
     target = resolve_url(url)
-    return current and target and current.func is target.func
+    return bool(current and target and current.func is target.func)
 
 
 def callback_redirect_response(response: Response) -> Response:
@@ -160,6 +167,36 @@ def callback_redirect_response(response: Response) -> Response:
 
 def namespace_resolve(func: Callable[..., Any]) -> str:
     return getattr(func, 'hypergen_endpoint', getattr(func, '__name__', 'hypergen'))
+
+
+class BaseViewCallable(RoutableCallable, Protocol):
+    original_func: Callable[..., Any]
+
+
+class LiveviewCallable(BaseViewCallable, Protocol):
+    is_hypergen_liveview: bool
+
+
+class ActionCallable(RoutableCallable, Protocol):
+    pass
+
+
+class CallbackTarget(NamedCallable, Protocol):
+    supports_hypergen_callback: bool
+
+    def reverse(self) -> str: ...
+
+
+class CallbackRenderer(Protocol):
+    hypergen_callback_signature: tuple[str, tuple[Any, ...], dict[str, Any]]
+
+    def __call__(self, element: base_element, key: str, value: Any) -> list[Any]: ...
+
+
+def _hypergen_html(template: Callable[..., Any]) -> str:
+    html = hypergen(template)
+    assert isinstance(html, str)
+    return html
 
 
 class LiveviewPluginBase:
@@ -250,20 +287,23 @@ class LiveviewPlugin(LiveviewPluginBase):
             assert html_output.count('<head>') == 1, (
                 'Ooops, multiple <head> tags found. There can be only one!'
             )
-            return html_output.replace('<head>', '<head>' + hypergen(template))
+            return html_output.replace('<head>', '<head>' + _hypergen_html(template))
         if '<html>' in html_output:
             assert html_output.count('<html>') == 1, (
                 'Ooops, multiple <html> tags found. There can be only one!'
             )
-            return html_output.replace('<html>', '<html><head>' + hypergen(template) + '</head>')
-        return hypergen(template) + html_output
+            return html_output.replace(
+                '<html>',
+                '<html><head>' + _hypergen_html(template) + '</head>',
+            )
+        return _hypergen_html(template) + html_output
 
 
 class ActionPlugin(LiveviewPluginBase):
     def __init__(
         self,
         target_id: str | None = None,
-        base_view: Callable[..., Any] | None = None,
+        base_view: BaseViewCallable | None = None,
         morph: bool = True,
         prepend_commands: bool = True,
     ) -> None:
@@ -332,7 +372,7 @@ def command(javascript_func_path: str, *args: Any, **kwargs: Any) -> list[Any] |
 
 
 def callback(
-    url: Any,
+    url: str | metastr | NamedCallable,
     *cb_args: Any,
     debounce: int = 0,
     confirm_: bool = False,
@@ -345,7 +385,7 @@ def callback(
     when: Any = None,
     each_url_blocks: bool = True,
     timeout: int = 20000,
-):
+) -> CallbackRenderer:
     meta = meta or {}
     headers = headers or {}
     if confirm is not False:
@@ -354,9 +394,9 @@ def callback(
         "You can't callback to a @liveview, only an @action."
     )
     if getattr(url, 'supports_hypergen_callback', False) is True:
-        url = url.reverse()
+        url = cast(CallbackTarget, url).reverse()
 
-    def to_html(element: base_element, key: str, value: Any):
+    def to_html(element: base_element, key: str, value: Any) -> list[Any]:
         def fix_this(x: Any) -> Any:
             return element if x is THIS else x
 
@@ -400,8 +440,9 @@ def callback(
         }.items()
         if value
     }
-    to_html.hypergen_callback_signature = 'callback', (url, *cb_args), signature
-    return to_html
+    renderer = cast(CallbackRenderer, to_html)
+    renderer.hypergen_callback_signature = ('callback', (url, *cb_args), signature)
+    return renderer
 
 
 def call_js(command_path: str, *cb_args: Any):
@@ -422,9 +463,9 @@ def json_commands_response(commands: Any, status: int = 200) -> Response:
     return Response(dumps(commands), status=status, mimetype='application/json')
 
 
-def _is_redirect_response(response: Any) -> bool:
-    return (
-        isinstance(response, Response) and 300 <= response.status_code < 400 and response.location
+def _is_redirect_response(response: object) -> TypeGuard[Response]:
+    return bool(
+        isinstance(response, Response) and 300 <= response.status_code < 400 and response.location,
     )
 
 
@@ -445,7 +486,7 @@ def liveview(
     target_id: str | None = None,
     appstate: Any = None,
     user_plugins: list[object] | None = None,
-) -> Callable[..., Any]:
+) -> LiveviewCallable:
     if perm != NO_PERM_REQUIRED:
         assert perm, 'perm is a required keyword argument'
     if target_id is None:
@@ -491,9 +532,10 @@ def liveview(
                         'user_plugins': user_plugins,
                     },
                 )
-                if _is_redirect_response(full['template_result']):
-                    return callback_redirect_response(full['template_result'])
-                return json_commands_response(full['context'].hypergen.commands)
+                assert isinstance(full, HypergenResult)
+                if _is_redirect_response(full.template_result):
+                    return callback_redirect_response(full.template_result)
+                return json_commands_response(full.context.hypergen.commands)
         with c(
             at='hypergen',
             matched_perms=perm_check.matched_perms,
@@ -514,12 +556,14 @@ def liveview(
                     'user_plugins': user_plugins,
                 },
             )
-            if isinstance(full['template_result'], Response):
-                return full['template_result']
-            return Response(full['html'], mimetype='text/html')
+            assert isinstance(full, HypergenResult)
+            if isinstance(full.template_result, Response):
+                return full.template_result
+            return Response(full.html, mimetype='text/html')
 
-    _.original_func = original_func
-    _.is_hypergen_liveview = True
+    wrapped = cast(LiveviewCallable, _)
+    wrapped.original_func = original_func
+    wrapped.is_hypergen_liveview = True
     route_register(
         router,
         _,
@@ -528,7 +572,7 @@ def liveview(
         endpoint=endpoint,
         base_template=base_template,
     )
-    return _
+    return wrapped
 
 
 @wrap2
@@ -546,10 +590,10 @@ def action(
     endpoint: str | None = None,
     methods: list[str] | tuple[str, ...] | None = None,
     partial: bool = True,
-    base_view: Callable[..., Any] | None = None,
+    base_view: BaseViewCallable | None = None,
     appstate: Any = None,
     user_plugins: list[object] | None = None,
-) -> Callable[..., Any]:
+) -> ActionCallable:
     if perm != NO_PERM_REQUIRED:
         assert perm, 'perm is a required keyword argument'
     if target_id is None:
@@ -596,15 +640,17 @@ def action(
                     'user_plugins': user_plugins,
                 },
             )
-            if _is_redirect_response(full['template_result']):
-                return callback_redirect_response(full['template_result'])
-            if isinstance(full['template_result'], Response):
-                return full['template_result']
-            if type(full['template_result']) is list:
-                return json_commands_response(full['template_result'])
-            return json_commands_response(full['context'].hypergen.commands)
+            assert isinstance(full, HypergenResult)
+            if _is_redirect_response(full.template_result):
+                return callback_redirect_response(full.template_result)
+            if isinstance(full.template_result, Response):
+                return full.template_result
+            if type(full.template_result) is list:
+                return json_commands_response(full.template_result)
+            return json_commands_response(full.context.hypergen.commands)
 
-    _.supports_hypergen_callback = True
+    wrapped = cast(ActionCallable, _)
+    wrapped.supports_hypergen_callback = True
     route_register(
         router,
         _,
@@ -613,7 +659,7 @@ def action(
         endpoint=endpoint,
         base_template=base_template,
     )
-    return _
+    return wrapped
 
 
 ENCODINGS = {

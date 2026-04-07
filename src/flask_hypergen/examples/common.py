@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import ContextDecorator, contextmanager
+from typing import Protocol, cast
 
 from flask_hypergen import (
     body,
@@ -21,6 +22,12 @@ from flask_hypergen import (
 )
 
 
+class BaseTemplateFactory(Protocol):
+    target_id: str
+
+    def __call__(self) -> ContextDecorator: ...
+
+
 def page_head(title_text: str) -> None:
     meta(charset='utf-8')
     meta(name='viewport', content='width=device-width, initial-scale=1')
@@ -29,7 +36,7 @@ def page_head(title_text: str) -> None:
     style('#content { min-height: 4rem; } .stack { display:flex; gap:0.5rem; flex-wrap:wrap; }')
 
 
-def make_base_template(title_text: str):
+def make_base_template(title_text: str) -> BaseTemplateFactory:
     @contextmanager
     def base_template():
         doctype()
@@ -41,8 +48,9 @@ def make_base_template(title_text: str):
                 with main(id_='content'):
                     yield
 
-    base_template.target_id = 'content'
-    return base_template
+    base_template_factory = cast(BaseTemplateFactory, base_template)
+    base_template_factory.target_id = 'content'
+    return base_template_factory
 
 
 def counter_fragment(n: int, increment_callback):

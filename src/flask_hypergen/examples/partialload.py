@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from typing import Protocol
 
 from flask import Blueprint
 
@@ -12,10 +12,16 @@ bp = Blueprint('partialload', __name__, url_prefix='/partialload')
 BASE_TEMPLATE = make_base_template('Partial Load')
 
 
+class ReversibleView(Protocol):
+    __name__: str
+
+    def reverse(self) -> str: ...
+
+
 def page_template(
     page_name: str,
-    first_link: Callable[..., object],
-    second_link: Callable[..., object],
+    first_link: ReversibleView,
+    second_link: ReversibleView,
 ) -> None:
     h2('Partial loading with history support')
     p('This example demonstrates shared base-template navigation with browser history support.')

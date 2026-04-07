@@ -7,16 +7,17 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import wraps
+import importlib
+from importlib.util import find_spec
 from pprint import pformat
 from types import GeneratorType
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, overload
 
 from flask import Response
 
 from flask_hypergen.context import Context, contextlist
 from flask_hypergen.context import context as c
 from flask_hypergen.hypergen import (
-    is_collection,
     make_string,
     plugins_exit_stack,
     plugins_method_call,
@@ -26,13 +27,44 @@ from flask_hypergen.hypergen import (
 from flask_hypergen.plugins.appstate import AppstatePlugin
 
 
-try:
-    import docutils.core
-    import docutils.utils
+if TYPE_CHECKING:
+    from flask_hypergen.liveview import BaseViewCallable
 
-    docutils_ok = True
-except ImportError:
-    docutils_ok = False
+
+def module_available(name: str) -> bool:
+    try:
+        return find_spec(name) is not None
+    except ModuleNotFoundError:
+        return False
+
+
+docutils_ok = module_available('docutils.core') and module_available('docutils.utils')
+
+
+class DocutilsReporter(Protocol):
+    SEVERE_LEVEL: int
+
+
+class DocutilsUtilsModule(Protocol):
+    Reporter: DocutilsReporter
+
+
+class DocutilsCoreModule(Protocol):
+    def publish_parts(
+        self,
+        source: str,
+        writer_name: str,
+        settings_overrides: dict[str, bool | int],
+    ) -> dict[str, str]: ...
+
+
+def docutils_core_load() -> DocutilsCoreModule:
+    return cast(DocutilsCoreModule, importlib.import_module('docutils.core'))
+
+
+def docutils_utils_load() -> DocutilsUtilsModule:
+    return cast(DocutilsUtilsModule, importlib.import_module('docutils.utils'))
+
 
 try:
     from yattag import indent as indent_
@@ -57,14 +89,12 @@ def add_class(a: ClassValue, b: str) -> str | list[str] | set[str]:
         return b
     if type(a) is str:
         return a.strip() + ' ' + b
-    if is_collection(a):
-        if hasattr(a, 'append'):
-            a.append(b)
-            return a
-        if hasattr(a, 'add'):
-            a.add(b)
-            return a
-        raise Exception('This class collection has neither an append() or add() method. Help!')
+    if isinstance(a, list):
+        a.append(b)
+        return a
+    if isinstance(a, set):
+        a.add(b)
+        return a
     raise Exception("I don't know how to add these variables together in the context of classes.")
 
 
@@ -92,7 +122,7 @@ class HypergenSettings:
     target_id: str | None = None
     appstate: Any = None
     namespace: str | None = None
-    base_view: Callable[..., Any] | None = None
+    base_view: BaseViewCallable | None = None
     prepend_commands: bool = True
     user_plugins: list[object] = field(default_factory=list)
 
@@ -101,9 +131,18 @@ class HypergenSettings:
 class HypergenResult:
     html: str
     context: Context
-    template_result: Any
+    template_result: object
 
-    def __getitem__(self, key: str) -> Any:
+    @overload
+    def __getitem__(self, key: Literal['html']) -> str: ...
+
+    @overload
+    def __getitem__(self, key: Literal['context']) -> Context: ...
+
+    @overload
+    def __getitem__(self, key: Literal['template_result']) -> object: ...
+
+    def __getitem__(self, key: str) -> str | Context | object:
         return getattr(self, key)
 
 
@@ -126,7 +165,9 @@ def settings_load(settings: dict[str, Any] | None) -> HypergenSettings:
 
 
 def plugins_build(settings: HypergenSettings) -> list[object]:
-    plugins = list(settings.plugins) if settings.plugins else [TemplatePlugin()]
+    plugins: list[object] = list(settings.plugins)
+    if not plugins:
+        plugins.append(TemplatePlugin())
     if settings.liveview:
         from flask_hypergen.liveview import LiveviewPlugin
 
@@ -192,7 +233,9 @@ def hypergen(
 
 
 def hypergen_to_response(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Response:
-    return Response(hypergen(func, *args, **kwargs), mimetype='text/html')
+    html = hypergen(func, *args, **kwargs)
+    assert isinstance(html, str)
+    return Response(html, mimetype='text/html')
 
 
 def join_html(html: list[Any] | tuple[Any, ...] | GeneratorType) -> str:
@@ -222,9 +265,11 @@ def write(*children: Any) -> None:
 def rst(restructured_text: str, report_level: int | None = None) -> None:
     if not docutils_ok:
         raise Exception("Please 'pip install docutils' to use the rst() function.")
-    report_level = report_level or docutils.utils.Reporter.SEVERE_LEVEL + 1
+    docutils_core = docutils_core_load()
+    docutils_utils = docutils_utils_load()
+    report_level = report_level or docutils_utils.Reporter.SEVERE_LEVEL + 1
     raw(
-        docutils.core.publish_parts(
+        docutils_core.publish_parts(
             restructured_text,
             writer_name='html',
             settings_overrides={'_disable_config': True, 'report_level': report_level},
@@ -275,6 +320,9 @@ def hprint(*args, **kwargs):
 
 
 class base_element(ContextDecorator):
+    tag: str = ''
+    js_value_func: str | None = None
+    js_coerce_func: str | None = None
     void = False
     auto_id = False
 
@@ -285,14 +333,14 @@ class base_element(ContextDecorator):
 
     def __init__(self, *children: Any, **attrs: Any) -> None:
         with ExitStack() as stack:
-            children = list(children)
+            children_list = list(children)
             for plugin in c.hypergen.plugins:
                 if hasattr(plugin, 'wrap_element_init'):
-                    stack.enter_context(plugin.wrap_element_init(self, children, attrs))
-            children = tuple(children)
+                    stack.enter_context(plugin.wrap_element_init(self, children_list, attrs))
+            children_tuple = tuple(children_list)
             assert 'hypergen' in c, 'Element called outside hypergen context.'
             self.t = attrs.pop('t', t)
-            self.children = children
+            self.children = children_tuple
             self.attrs = attrs
             self.sep = attrs.pop('sep', '')
             self.end_char = attrs.pop('end', None)
@@ -510,6 +558,474 @@ class style(base_element):
         super().__init__(*children, **attrs)
 
 
+class abbr(base_element):
+    pass
+
+
+class acronym(base_element):
+    pass
+
+
+class address(base_element):
+    pass
+
+
+class applet(base_element):
+    pass
+
+
+class area(base_element_void):
+    pass
+
+
+class article(base_element):
+    pass
+
+
+class aside(base_element):
+    pass
+
+
+class audio(base_element):
+    pass
+
+
+class b(base_element):
+    pass
+
+
+class base(base_element_void):
+    pass
+
+
+class basefont(base_element):
+    pass
+
+
+class bdi(base_element):
+    pass
+
+
+class bdo(base_element):
+    pass
+
+
+class big(base_element):
+    pass
+
+
+class blockquote(base_element):
+    pass
+
+
+class body(base_element):
+    pass
+
+
+class br(base_element_void):
+    pass
+
+
+class button(base_element):
+    pass
+
+
+class canvas(base_element):
+    pass
+
+
+class caption(base_element):
+    pass
+
+
+class center(base_element):
+    pass
+
+
+class cite(base_element):
+    pass
+
+
+class code(base_element):
+    pass
+
+
+class col(base_element_void):
+    pass
+
+
+class colgroup(base_element):
+    pass
+
+
+class data(base_element):
+    pass
+
+
+class datalist(base_element):
+    pass
+
+
+class dd(base_element):
+    pass
+
+
+class del_(base_element):
+    pass
+
+
+class details(base_element):
+    pass
+
+
+class dfn(base_element):
+    pass
+
+
+class dialog(base_element):
+    pass
+
+
+class dir_(base_element):
+    pass
+
+
+class div(base_element):
+    pass
+
+
+class dl(base_element):
+    pass
+
+
+class dt(base_element):
+    pass
+
+
+class em(base_element):
+    pass
+
+
+class embed(base_element_void):
+    pass
+
+
+class fieldset(base_element):
+    pass
+
+
+class figcaption(base_element):
+    pass
+
+
+class figure(base_element):
+    pass
+
+
+class font(base_element):
+    pass
+
+
+class footer(base_element):
+    pass
+
+
+class form(base_element):
+    pass
+
+
+class frame(base_element):
+    pass
+
+
+class frameset(base_element):
+    pass
+
+
+class h1(base_element):
+    pass
+
+
+class h2(base_element):
+    pass
+
+
+class h3(base_element):
+    pass
+
+
+class h4(base_element):
+    pass
+
+
+class h5(base_element):
+    pass
+
+
+class h6(base_element):
+    pass
+
+
+class head(base_element):
+    pass
+
+
+class header(base_element):
+    pass
+
+
+class hr(base_element_void):
+    pass
+
+
+class html(base_element):
+    pass
+
+
+class i(base_element):
+    pass
+
+
+class iframe(base_element):
+    pass
+
+
+class img(base_element_void):
+    pass
+
+
+class ins(base_element):
+    pass
+
+
+class kbd(base_element):
+    pass
+
+
+class label(base_element):
+    pass
+
+
+class legend(base_element):
+    pass
+
+
+class li(base_element):
+    pass
+
+
+class main(base_element):
+    pass
+
+
+class map_(base_element):
+    pass
+
+
+class mark(base_element):
+    pass
+
+
+class meta(base_element_void):
+    pass
+
+
+class meter(base_element):
+    pass
+
+
+class nav(base_element):
+    pass
+
+
+class noframes(base_element):
+    pass
+
+
+class noscript(base_element):
+    pass
+
+
+class object_(base_element):
+    pass
+
+
+class ol(base_element):
+    pass
+
+
+class optgroup(base_element):
+    pass
+
+
+class option(base_element):
+    pass
+
+
+class output(base_element):
+    pass
+
+
+class p(base_element):
+    pass
+
+
+class param(base_element_void):
+    pass
+
+
+class picture(base_element):
+    pass
+
+
+class pre(base_element):
+    pass
+
+
+class progress(base_element):
+    pass
+
+
+class q(base_element):
+    pass
+
+
+class rp(base_element):
+    pass
+
+
+class rt(base_element):
+    pass
+
+
+class ruby(base_element):
+    pass
+
+
+class s(base_element):
+    pass
+
+
+class samp(base_element):
+    pass
+
+
+class section(base_element):
+    pass
+
+
+class select(base_element):
+    pass
+
+
+class small(base_element):
+    pass
+
+
+class source(base_element_void):
+    pass
+
+
+class span(base_element):
+    pass
+
+
+class strike(base_element):
+    pass
+
+
+class strong(base_element):
+    pass
+
+
+class sub(base_element):
+    pass
+
+
+class summary(base_element):
+    pass
+
+
+class sup(base_element):
+    pass
+
+
+class svg(base_element):
+    pass
+
+
+class table(base_element):
+    pass
+
+
+class tbody(base_element):
+    pass
+
+
+class td(base_element):
+    pass
+
+
+class template(base_element):
+    pass
+
+
+class textarea(base_element):
+    pass
+
+
+class tfoot(base_element):
+    pass
+
+
+class th(base_element):
+    pass
+
+
+class thead(base_element):
+    pass
+
+
+class time_(base_element):
+    pass
+
+
+class title(base_element):
+    pass
+
+
+class tr(base_element):
+    pass
+
+
+class track(base_element_void):
+    pass
+
+
+class tt(base_element):
+    pass
+
+
+class u(base_element):
+    pass
+
+
+class ul(base_element):
+    pass
+
+
+class var(base_element):
+    pass
+
+
+class video(base_element):
+    pass
+
+
+class wbr(base_element_void):
+    pass
+
+
 def doctype(type_: str = 'html') -> None:
     raw('<!DOCTYPE ', type_, '>')
 
@@ -633,26 +1149,7 @@ _TAG_NAMES = [
     'video',
     'wbr',
 ]
-_VOID_TAGS = {
-    'area',
-    'base',
-    'br',
-    'col',
-    'embed',
-    'hr',
-    'img',
-    'meta',
-    'param',
-    'source',
-    'track',
-    'wbr',
-}
-for _name in _TAG_NAMES:
-    if _name in globals():
-        continue
-    base_cls = base_element_void if _name in _VOID_TAGS else base_element
-    globals()[_name] = type(_name, (base_cls,), {})
-time = globals()['time_']
+time = time_
 
 __all__ = [
     *_TAG_NAMES,

@@ -40,6 +40,7 @@ def make_blueprint(database_url: str) -> Blueprint:
     def update_value(delta: int) -> int:
         with Session(engine) as session:
             state = session.get(CounterState, 1)
+            assert state is not None
             state.value += delta
             session.commit()
             return state.value
