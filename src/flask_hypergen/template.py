@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections import OrderedDict
-from collections.abc import Callable
+from collections import OrderedDict, deque
+from collections.abc import Callable, Iterator
 from contextlib import ContextDecorator, ExitStack, contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -48,8 +48,10 @@ COMMANDS = 'COMMANDS'
 HYPERGEN_RETURNS = {HTML, FULL, COMMANDS}
 DELETED = ''
 
+ClassValue = str | list[str] | set[str] | None
 
-def add_class(a, b):
+
+def add_class(a: ClassValue, b: str) -> str | list[str] | set[str]:
     assert type(b) is str, 'b must be string for now. PR?'
     if a in ('', OMIT, None):
         return b
@@ -66,7 +68,7 @@ def add_class(a, b):
     raise Exception("I don't know how to add these variables together in the context of classes.")
 
 
-def on_url(url, value_on_url=True, value_not_on_url=False):
+def on_url(url: str, value_on_url: Any = True, value_not_on_url: Any = False) -> Any:
     from flask_hypergen.liveview import url_is_active
 
     return value_on_url if url_is_active(url) else value_not_on_url
@@ -153,7 +155,11 @@ def html_indent(html: str) -> str:
     return indent_(html, indentation='    ', newline='\n', indent_text=True)
 
 
-def hypergen(template, *args, **kwargs):
+def hypergen(
+    template: Callable[..., Any],
+    *args: Any,
+    **kwargs: Any,
+) -> str | deque[Any] | HypergenResult:
     assert 'request' in c, "The 'flask_hypergen.context.context_init_app' hook must be installed!"
     settings = settings_load(kwargs.pop('settings', None))
     plugins = plugins_build(settings)
@@ -185,12 +191,12 @@ def hypergen(template, *args, **kwargs):
         return HypergenResult(html=html, context=c.clone(), template_result=template_result)
 
 
-def hypergen_to_response(func, *args, **kwargs):
+def hypergen_to_response(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Response:
     return Response(hypergen(func, *args, **kwargs), mimetype='text/html')
 
 
-def join_html(html):
-    def fmt(items):
+def join_html(html: list[Any] | tuple[Any, ...] | GeneratorType) -> str:
+    def fmt(items: list[Any] | tuple[Any, ...] | GeneratorType) -> Iterator[Any]:
         for item in items:
             if issubclass(type(item), base_element):
                 yield item.as_string()
@@ -205,15 +211,15 @@ def join_html(html):
     return ''.join(make_string(x) for x in fmt(html))
 
 
-def raw(*children):
+def raw(*children: Any) -> None:
     c.hypergen.into.extend(children)
 
 
-def write(*children):
+def write(*children: Any) -> None:
     c.hypergen.into.extend(t(x) for x in children)
 
 
-def rst(restructured_text, report_level=None):
+def rst(restructured_text: str, report_level: int | None = None) -> None:
     if not docutils_ok:
         raise Exception("Please 'pip install docutils' to use the rst() function.")
     report_level = report_level or docutils.utils.Reporter.SEVERE_LEVEL + 1
@@ -272,12 +278,12 @@ class base_element(ContextDecorator):
     void = False
     auto_id = False
 
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls, *args: Any, **kwargs: Any) -> base_element:
         instance = ContextDecorator.__new__(cls)
         instance.tag = cls.__name__.rstrip('_')
         return instance
 
-    def __init__(self, *children, **attrs):
+    def __init__(self, *children: Any, **attrs: Any) -> None:
         with ExitStack() as stack:
             children = list(children)
             for plugin in c.hypergen.plugins:
@@ -303,16 +309,16 @@ class base_element(ContextDecorator):
             self.j = len(c.hypergen.into)
             super().__init__()
 
-    def __enter__(self):
+    def __enter__(self) -> base_element:
         c.hypergen.into.extend(self.start())
         self.delete()
         return self
 
-    def __exit__(self, *exc):
+    def __exit__(self, *exc: object) -> None:
         if not self.void:
             c.hypergen.into.extend(self.end())
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         from flask_hypergen.liveview import THIS
 
         def value(v):
@@ -337,17 +343,21 @@ class base_element(ContextDecorator):
 
         return f'{self.__class__.__name__}({signature(self.children, self.attrs)})'
 
-    def as_string(self):
+    def as_string(self) -> str:
         into = self.start()
         into.extend(self.end())
         return join_html(into)
 
-    def delete(self):
+    def delete(self) -> None:
         for i in range(self.i, self.j):
             c.hypergen.into[i] = DELETED
 
-    def format_children(self, children, nested=False):
-        into = []
+    def format_children(
+        self,
+        children: list[Any] | tuple[Any, ...] | GeneratorType,
+        nested: bool = False,
+    ) -> list[Any]:
+        into: list[Any] = []
         sep = self.t(self.sep)
         for x in children:
             if x in ('', None):
@@ -372,12 +382,12 @@ class base_element(ContextDecorator):
             into.append(self.t(self.end_char))
         return into
 
-    def ensure_id(self):
+    def ensure_id(self) -> None:
         assert self.attrs['id_'] is not None, (
             f"This element needs an id_='myid' attribute: {self!r}"
         )
 
-    def attribute(self, key, value):
+    def attribute(self, key: str, value: Any) -> list[Any]:
         key = t(key).rstrip('_').replace('_', '-')
         if value == OMIT or value is None:
             return []
@@ -399,7 +409,7 @@ class base_element(ContextDecorator):
         assert '"' not in value, 'How dare you put a " in my attributes! :)'
         return [' ', key, '="', value, '"']
 
-    def start(self):
+    def start(self) -> list[Any]:
         cache = getattr(self, '_start_cache', None)
         if cache:
             return cache
@@ -413,7 +423,7 @@ class base_element(ContextDecorator):
         self._start_cache = into
         return into
 
-    def end(self):
+    def end(self) -> list[str]:
         return [f'</{self.tag}>'] if not self.void else ['']
 
 
@@ -422,12 +432,12 @@ class base_element_void(base_element):
 
 
 class Component:
-    def __init__(self, into, i, j):
+    def __init__(self, into: list[Any] | contextlist, i: int, j: int) -> None:
         self.into = into
         self.i = i
         self.j = j
 
-    def delete(self):
+    def delete(self) -> None:
         for i in range(self.i, self.j):
             c.hypergen.into[i] = DELETED
 
@@ -500,7 +510,7 @@ class style(base_element):
         super().__init__(*children, **attrs)
 
 
-def doctype(type_='html'):
+def doctype(type_: str = 'html') -> None:
     raw('<!DOCTYPE ', type_, '>')
 
 

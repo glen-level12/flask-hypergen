@@ -150,6 +150,18 @@ def test_permission_protected_action_redirects_when_logged_out(client):
     assert '/auth/login' in payload
 
 
+def test_permission_protected_action_returns_403_for_authenticated_user_without_perm(client):
+    client.get('/auth/login?user=viewer')
+    response = client.post(
+        '/auth/update',
+        data={'hypergen_data': dumps({'args': ['Blocked']})},
+        headers={'Referer': 'http://localhost/auth/editor'},
+    )
+
+    assert response.status_code == 403
+    assert 'hypergen.redirect' not in response.get_data(as_text=True)
+
+
 def test_permission_protected_action_succeeds_when_authorized(client):
     client.get('/auth/login?user=editor')
     response = client.post(

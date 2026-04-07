@@ -6,6 +6,7 @@ from contextlib import contextmanager
 import threading
 from typing import Any
 
+from flask import Flask, Request
 from flask import request as flask_request
 from pyrsistent import m, pmap
 
@@ -74,7 +75,7 @@ class Context(threading.local):
                 else:
                     new_value_at = self.ctx[at].update(pmap(items))
                     if not new_value_at:
-                        raise Exception(
+                        raise TypeError(
                             'Not immutable context variable attempted updated. If you want to '
                             'nest with context() statements you must use a pmap() or another '
                             'immutable hashmap type.',
@@ -91,7 +92,7 @@ context = Context()
 c = context
 
 
-def user_resolve(request: Any) -> Any:
+def user_resolve(request: Request) -> Any:
     user = getattr(request, 'user', None)
     if user is not None:
         return user
@@ -101,11 +102,11 @@ def user_resolve(request: Any) -> Any:
         return None
     try:
         return current_user._get_current_object()
-    except Exception:
+    except RuntimeError:
         return None
 
 
-def context_values_build(request: Any) -> dict[str, Any]:
+def context_values_build(request: Request) -> dict[str, Any]:
     values = {'request': request}
     user = user_resolve(request)
     if user is not None:
@@ -113,8 +114,10 @@ def context_values_build(request: Any) -> dict[str, Any]:
     return values
 
 
-def context_middleware(get_response: Callable[[Any], Any]) -> Callable[[Any], Any]:
-    def middleware(request: Any) -> Any:
+def context_middleware[ResponseT](
+    get_response: Callable[[Request], ResponseT],
+) -> Callable[[Request], ResponseT]:
+    def middleware(request: Request) -> ResponseT:
         with context(**context_values_build(request)):
             return get_response(request)
 
@@ -122,11 +125,11 @@ def context_middleware(get_response: Callable[[Any], Any]) -> Callable[[Any], An
 
 
 class ContextMiddleware:
-    def process_request(self, request: Any) -> None:
+    def process_request(self, request: Request) -> None:
         context.replace(**context_values_build(request))
 
 
-def context_init_app(app: Any) -> None:
+def context_init_app(app: Flask) -> None:
     if app.extensions.get('flask_hypergen_context_init'):
         return
 
@@ -135,7 +138,7 @@ def context_init_app(app: Any) -> None:
         context.replace(**context_values_build(flask_request))
 
     @app.teardown_request
-    def context_teardown_request(exc: Any) -> None:
+    def context_teardown_request(exc: BaseException | None) -> None:
         del exc
         context.replace()
 

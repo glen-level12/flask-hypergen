@@ -1,6 +1,10 @@
 from collections import deque
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from typing import Any
 
+from flask import Flask
+from flask.testing import FlaskClient
 import pytest
 
 from flask_hypergen.context import context, contextlist
@@ -8,27 +12,30 @@ from flask_hypergen.examples.app import create_app
 
 
 class User:
-    pk = 1
-    id = 1
-    is_authenticated = True
-    permissions = frozenset()
+    pk: int = 1
+    id: int = 1
+    is_authenticated: bool = True
+    permissions: frozenset[str] = frozenset()
 
-    def has_perm(self, permission):
+    def has_perm(self, permission: str) -> bool:
         return permission in self.permissions
 
-    def has_perms(self, permissions):
+    def has_perms(
+        self,
+        permissions: list[str] | tuple[str, ...] | set[str] | frozenset[str],
+    ) -> bool:
         return set(permissions) <= set(self.permissions)
 
 
 class Request:
-    def __init__(self):
+    def __init__(self) -> None:
         self.user = User()
-        self.session = {}
+        self.session: dict[str, Any] = {}
         self.endpoint = 'tests.endpoint'
-        self.view_args = {}
-        self.headers = {}
+        self.view_args: dict[str, Any] = {}
+        self.headers: dict[str, str] = {}
 
-    def get_full_path(self):
+    def get_full_path(self) -> str:
         return 'mock'
 
 
@@ -36,7 +43,7 @@ class HttpResponse:
     pass
 
 
-def hypergen_context():
+def hypergen_context() -> dict[str, Any]:
     return {
         'into': contextlist('target_id'),
         'ids': set(),
@@ -46,22 +53,22 @@ def hypergen_context():
     }
 
 
-def mock_hypergen_callback(func):
+def mock_hypergen_callback(func: Callable[..., Any]) -> Callable[..., Any]:
     func.reverse = lambda *a, **k: '/path/to/cb/'
     return func
 
 
 @contextmanager
-def mock_middleware():
+def mock_middleware() -> Iterator[None]:
     with context(request=Request(), user=User()):
         yield
 
 
 @pytest.fixture
-def app(tmp_path):
+def app(tmp_path) -> Flask:
     return create_app(testing=True, database_url=f'sqlite:///{tmp_path / "example.sqlite3"}')
 
 
 @pytest.fixture
-def client(app):
+def client(app: Flask) -> FlaskClient:
     return app.test_client()

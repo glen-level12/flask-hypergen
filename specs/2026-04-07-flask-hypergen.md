@@ -375,3 +375,162 @@ Verified: `pytest tests/flask_hypergen_tests -q` passes (32 passed, 1 xfailed). 
 - The `autourl_register` and `autourls` functions in `hypergen.py` are ported stubs that aren't used yet, consistent with the spec deferring `autourls`.
 - The examples all share `common.py` for base templates, keeping them DRY.  Good.
 - The e2e test fixture (`live_server`) is well done — ephemeral port, daemon thread, proper shutdown.
+
+
+## Review Notes (by Claude Opus 4.6 via Augment Agent, 2026-04-07 ~21:00 UTC)
+
+Verified: `pytest tests/flask_hypergen_tests -q -ra` passes (41 passed, 1 xfailed).  `ruff check` and `ruff format` clean.
+
+### Previous review issues addressed
+
+The v2 and style/architecture refactor commits addressed the majority of issues from the prior review:
+
+- ✅ `pyproject.toml` dependencies now in dedicated `flask-hypergen` and `flask-hypergen-test` groups
+- ✅ `Context.__setitem__` implemented properly
+- ✅ Context access style is now consistent (attribute-style used throughout)
+- ✅ `d = dict` alias removed
+- ✅ `test_dummy.py` removed
+- ✅ `test_plugins` now asserts against a full expected HTML constant
+- ✅ `test_element` missing sub-cases restored
+- ✅ `test_components2` missing sub-case restored
+- ✅ `test_js_value_func` nonsense-type sub-case restored
+- ✅ `test_live_element` textarea/autofocus sub-cases added
+- ✅ Public API export test (`test_flask_hypergen_public_api`) added
+- ✅ File-level `# ruff: noqa` removed from library core and examples (only remains on test file, acceptable)
+
+### Issues found
+
+#### 1. Use known types instead of `Any`; add missing annotations — `template.py`
+
+**This should be fixed before moving on to new work.** Many public functions either have no type annotations at all or use `Any` where the actual type is known. Using the real type catches caller mistakes at IDE/mypy time and documents the API contract.
+
+Functions with **no annotations at all** (need both parameter and return types):
+- `add_class(a, b)` — line 52: `a` is `str | list | set | None`, `b` is `str`, returns `str | list | set`
+- `on_url(url, value_on_url=True, value_not_on_url=False)` — line 69: `url` is `str`
+- `hypergen(template, *args, **kwargs)` — line 156: `template` is `Callable[..., Any]`, return is `str | deque | HypergenResult`
+- `hypergen_to_response(func, *args, **kwargs)` — line 188: `func` is `Callable[..., Any]`, returns `Response`
+- `join_html(html)` — line 192: `html` is `list`, returns `str`
+- `raw(*children)` — line 208: returns `None`
+- `write(*children)` — line 212: returns `None`
+- `rst(restructured_text, report_level=None)` — line 216: `restructured_text` is `str`
+- `doctype(type_='html')` — line 503: `type_` is `str`, returns `None`
+- `Component.__init__(self, into, i, j)` — line 425: `into` is `list`, `i` and `j` are `int`
+- All `base_element` methods
+
+**Suggested fix for `hypergen` (the most important one):**
+```python
+def hypergen(template: Callable[..., Any], *args: Any, **kwargs: Any) -> str | deque | HypergenResult:
+```
+
+#### 2. Use known types instead of `Any`; add missing annotations — `liveview.py` and `context.py`
+
+**This should be fixed before moving on to new work.** Same problem across `liveview.py` and `context.py` — many parameters typed `Any` where the concrete type is known.
+
+Known-type `Any` parameters that should use the real type:
+- `init_app(app: Any) -> Any` — line 101: should be `app: Flask` → `Flask`
+- `context_init_app(app: Any)` — context.py line 129: should be `app: Flask`
+- `check_perms(request: Any, ...)` — hypergen.py line 108: `request` is `Request` (from `flask`)
+- `user_resolve(request: Any)` — context.py line 94: should be `Request`
+- `context_values_build(request: Any)` — context.py line 108: should be `Request`
+- `context_middleware(get_response: Callable[[Any], Any])` — context.py line 116: the `Any` args are `Request` and `Response`
+- `ContextMiddleware.process_request(self, request: Any)` — context.py line 125: should be `Request`
+- `context_teardown_request(exc: Any)` — context.py line 138: should be `BaseException | None`
+
+Functions with **no annotations at all** that need them:
+- `liveview(func, router=None, ...)` — line 432: `func` is `Callable`, `router` is `Blueprint | Flask | None`, `rule` is `str | None`, `perm` is `str | tuple[str, ...] | None`, etc.
+- `action(func, router=None, ...)` — line 535: same known types as `liveview`
+- `encoder(o)` — line 631: returns `list | dict`
+- `decoder(o)` — line 654: `o` is `dict`, returns the decoded value
+- `dumps(data, default=encoder, indent=None)` — line 665: `data` can stay `Any` (truly generic), but `default` is `Callable` and `indent` is `int | None`, returns `str`
+- `loads(data, integer_keys=False)` — line 669: `data` is `str`, `integer_keys` is `bool`, return is `Any` (legitimately unknown)
+- `LiveviewPlugin.process_html(self, html_output)` — line 226: `html_output` is `str`, returns `str`
+
+#### 3. Bare `except Exception` in `user_resolve` (context.py:104)
+
+```python
+try:
+    return current_user._get_current_object()
+except Exception:
+    return None
+```
+
+Per AGENTS.md: "Don't catch an exception just to catch it." This silently swallows any error from Flask-Login (e.g. misconfigured app context, broken user loader). At minimum, this should catch `RuntimeError` (which Flask-Login raises outside a request context) rather than all exceptions. If a user loader raises `ValueError` or `TypeError`, the developer should see that error.
+
+**Suggested fix:**
+```python
+except RuntimeError:
+    return None
+```
+
+#### 4–5. (Folded into issues #1 and #2 above)
+
+`init_app(app: Any)` and `context_init_app(app: Any)` are called out in issue #2 as known-type `Any` parameters that should use `Flask`.
+
+#### 6. Missing test coverage for auth permission edge cases
+
+The auth tests cover the happy paths well, but are missing:
+- `any_perm=True` behavior (requesting any of several permissions)
+- `raise_exception=True` behavior (should raise `Forbidden` instead of returning a redirect/403)
+- Permission-protected action returning 403 (not redirect) for authenticated user without permission
+
+These are all code paths in `check_perms()` that aren't exercised by any test.
+
+#### 7. Missing test coverage for `command()` function options
+
+The `command()` function in `liveview.py:322` supports `prepend=True` and `return_=True` kwargs. The `return_=True` path is tested indirectly through `test_commands_demo_returns_explicit_commands`, but `prepend=True` has no direct test. Since command ordering is important for Hypergen's client-side execution model, a unit test asserting prepend behavior would be valuable.
+
+#### 8. Missing test for `loads()` with `integer_keys=True`
+
+The `loads` function (liveview.py:669) has an `integer_keys` parameter with a dedicated code path (`integer_keys_object_pairs_hook`). No test exercises this path.
+
+#### 9. `examples/__init__.py` has untyped `create_app` wrapper
+
+```python
+def create_app(*args, **kwargs):
+```
+
+This is a minor convenience wrapper but should match the signature of the function it delegates to for IDE support.
+
+#### 10. `conftest.py` fixtures and helpers lack type annotations
+
+`tests/flask_hypergen_tests/conftest.py` — `User`, `Request`, `HttpResponse`, `hypergen_context()`, `mock_hypergen_callback()` all lack type annotations. While test code is less critical, these are shared fixtures used across the test suite and annotations would document the expected mock interfaces.
+
+#### 11. `test_core_ported.py` still uses wildcard import
+
+Line 1 has `# ruff: noqa: F403, F405, E501, C408, B011, B017, SIM117` and line 14 has `from flask_hypergen.imports import *`. The library itself was cleaned up, but the test file still relies on star imports. This makes it unclear which names the tests actually depend on and prevents ruff from catching undefined name errors in the test file.
+
+**Suggested fix:** Replace the star import with explicit imports for the ~20 names actually used in the tests (`div`, `ul`, `li`, `input_`, `textarea`, `span`, `html`, `head`, `body`, `title`, `h1`, `h2`, `p`, `tr`, `td`, `a`, `select`, `FULL`, `component`, `doctype`, `THIS`, `callback`, `call_js`, `dumps`, `loads`, `hypergen`, `command`).
+
+### Observations (not issues)
+
+- The `HypergenSettings` and `HypergenResult` dataclasses in `template.py` are a nice improvement over the ad-hoc dict patterns. `HypergenResult.__getitem__` provides backward compatibility for dict-style access while enabling attribute access.
+- The `_reverse_factory` / `route_register` pattern in `hypergen.py` is clean and provides good function-based callback ergonomics.
+- The `PermissionCheck` and `ResolverMatch` frozen dataclasses in `hypergen.py` are well-structured and make the control flow in `check_perms` much more readable than the prior approach.
+- The `contextlist` class is a clever solution for multi-target rendering, and the tests (`test_multilist`, `test_multitargets`) cover it well.
+- The auth example is self-contained with its own `DemoUser` dataclass — good separation from the library code.
+- Pickle-in-session observation from prior review still applies: `appstate.py` uses `pickle` for session serialization. This is a known security surface documented in the prior review and should be called out in user-facing docs when those are written.
+
+
+## Review follow-up implementation notes (2026-04-07 late)
+
+- Tightened library typing across the reviewed public surfaces:
+  - `template.py` now annotates the previously untyped public helpers called out in review (`add_class`, `on_url`, `hypergen`, `hypergen_to_response`, `join_html`, `raw`, `write`, `rst`, `doctype`), plus `Component` and the `base_element` methods.
+  - `liveview.py` now annotates `init_app`, `LiveviewPlugin.process_html`, `liveview`, `action`, `encoder`, `decoder`, `dumps`, and `loads` with concrete Flask/router/signature types instead of unhelpful `Any` placeholders.
+  - `context.py` and `hypergen.py` now use concrete Flask types for app/request-facing functions (`context_init_app`, `context_values_build`, `context_middleware`, `ContextMiddleware.process_request`, `check_perms`, etc.).
+- Narrowed `user_resolve()` exception handling to `RuntimeError` so real Flask-Login/user-loader bugs are no longer silently swallowed.
+- Added the missing auth/permission coverage requested by review:
+  - `any_perm=True` subset matching
+  - `raise_exception=True` forbidden path
+  - authenticated-but-unauthorized action requests returning `403` instead of redirect commands
+- Added focused unit coverage for the remaining untested helper branches:
+  - `command(..., prepend=True)` ordering
+  - `loads(..., integer_keys=True)` integer-key decoding
+- Typed the convenience app factory wrapper in `src/flask_hypergen/examples/__init__.py` to match the delegated signature.
+- Added type annotations to the shared Flask Hypergen test fixtures/helpers in `tests/flask_hypergen_tests/conftest.py`.
+- Replaced the remaining wildcard import in `tests/flask_hypergen_tests/test_core_ported.py` with explicit imports.
+
+## Current status
+
+- `ruff check src/flask_hypergen tests/flask_hypergen_tests --ignore COM812` passes.
+- `ruff format src/flask_hypergen tests/flask_hypergen_tests` passes.
+- `pytest tests/flask_hypergen_tests -q -ra` passes with `46 passed, 1 xfailed`.

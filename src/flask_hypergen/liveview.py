@@ -9,7 +9,7 @@ from functools import wraps
 import json
 from typing import Any
 
-from flask import Blueprint, Response, current_app, has_app_context
+from flask import Blueprint, Flask, Response, current_app, has_app_context
 from flask import request as flask_request
 
 from flask_hypergen.context import c, context, context_init_app, contextlist
@@ -98,7 +98,7 @@ ASSETS_BLUEPRINT = Blueprint(
 )
 
 
-def init_app(app: Any) -> Any:
+def init_app(app: Flask) -> Flask:
     context_init_app(app)
     if ASSETS_BLUEPRINT.name not in app.blueprints:
         app.register_blueprint(ASSETS_BLUEPRINT)
@@ -223,7 +223,7 @@ class LiveviewPlugin(LiveviewPluginBase):
         with c(at='hypergen', event_handler_callbacks={}, commands=deque()):
             yield
 
-    def process_html(self, html_output):
+    def process_html(self, html_output: str) -> str:
         def template() -> None:
             raw('<!--hypergen_liveview_media-->')
             script(src=_static_hypergen_path())
@@ -319,7 +319,7 @@ class ActionPlugin(LiveviewPluginBase):
             c.hypergen.commands.extend(commands)
 
 
-def command(javascript_func_path: str, *args: Any, **kwargs: Any):
+def command(javascript_func_path: str, *args: Any, **kwargs: Any) -> list[Any] | None:
     prepend = kwargs.pop('prepend', False)
     return_ = kwargs.pop('return_', False)
     item = [javascript_func_path, *args]
@@ -430,22 +430,22 @@ def _is_redirect_response(response: Any) -> bool:
 
 @wrap2
 def liveview(
-    func,
-    router=None,
-    rule=None,
-    base_template=None,
-    perm=None,
-    any_perm=False,
-    login_url=None,
-    raise_exception=False,
-    redirect_field_name=None,
-    endpoint=None,
-    methods=None,
-    partial=True,
-    target_id=None,
-    appstate=None,
-    user_plugins=None,
-):
+    func: Callable[..., Any],
+    router: Blueprint | Flask | None = None,
+    rule: str | None = None,
+    base_template: Callable[..., Any] | None = None,
+    perm: str | tuple[str, ...] | None = None,
+    any_perm: bool = False,
+    login_url: str | None = None,
+    raise_exception: bool = False,
+    redirect_field_name: str | None = None,
+    endpoint: str | None = None,
+    methods: list[str] | tuple[str, ...] | None = None,
+    partial: bool = True,
+    target_id: str | None = None,
+    appstate: Any = None,
+    user_plugins: list[object] | None = None,
+) -> Callable[..., Any]:
     if perm != NO_PERM_REQUIRED:
         assert perm, 'perm is a required keyword argument'
     if target_id is None:
@@ -533,23 +533,23 @@ def liveview(
 
 @wrap2
 def action(
-    func,
-    router=None,
-    rule=None,
-    base_template=None,
-    target_id=None,
-    perm=None,
-    any_perm=False,
-    login_url=None,
-    raise_exception=False,
-    redirect_field_name=None,
-    endpoint=None,
-    methods=None,
-    partial=True,
-    base_view=None,
-    appstate=None,
-    user_plugins=None,
-):
+    func: Callable[..., Any],
+    router: Blueprint | Flask | None = None,
+    rule: str | None = None,
+    base_template: Callable[..., Any] | None = None,
+    target_id: str | None = None,
+    perm: str | tuple[str, ...] | None = None,
+    any_perm: bool = False,
+    login_url: str | None = None,
+    raise_exception: bool = False,
+    redirect_field_name: str | None = None,
+    endpoint: str | None = None,
+    methods: list[str] | tuple[str, ...] | None = None,
+    partial: bool = True,
+    base_view: Callable[..., Any] | None = None,
+    appstate: Any = None,
+    user_plugins: list[object] | None = None,
+) -> Callable[..., Any]:
     if perm != NO_PERM_REQUIRED:
         assert perm, 'perm is a required keyword argument'
     if target_id is None:
@@ -628,7 +628,7 @@ ENCODINGS = {
 }
 
 
-def encoder(o):
+def encoder(o: Any) -> list[Any] | dict[str, Any]:
     if issubclass(type(o), base_element):
         assert o.attrs.get('id_', False), 'Missing id_'
         return ['_', 'element_value', [o.js_value_func, o.js_coerce_func, o.attrs['id_']]]
@@ -651,8 +651,8 @@ DECODINGS = {
 }
 
 
-def decoder(o):
-    data = o.get('_', None)
+def decoder(o: dict[str | int, Any]) -> Any:
+    data = o.get('_')
     if data is None or type(data) is not list or len(data) != 2:
         return o
     datatype, value = data
@@ -662,12 +662,16 @@ def decoder(o):
     raise Exception(f'Unknown datatype, {datatype}')
 
 
-def dumps(data, default=encoder, indent=None):
+def dumps(
+    data: Any,
+    default: Callable[[Any], Any] = encoder,
+    indent: int | None = None,
+) -> str:
     return json.dumps(data, default=default, separators=(',', ':'), indent=indent)
 
 
-def loads(data, integer_keys=False):
-    def integer_keys_object_pairs_hook(pairs):
+def loads(data: str, integer_keys: bool = False) -> Any:
+    def integer_keys_object_pairs_hook(pairs: list[tuple[str, Any]]) -> Any:
         return decoder({int(k) if k.isdigit() else k: v for k, v in pairs})
 
     if integer_keys is True:

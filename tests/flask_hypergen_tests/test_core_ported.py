@@ -1,17 +1,44 @@
-# ruff: noqa: F403, F405, E501, C408, B011, B017, SIM117
-
 from contextlib import contextmanager
 from datetime import date, datetime
 import re
 
 from pyrsistent import pmap
 import pytest
+from werkzeug.exceptions import Forbidden
 
 import flask_hypergen
+from flask_hypergen import (
+    FULL,
+    LOGIN_REQUIRED,
+    THIS,
+    a,
+    body,
+    call_js,
+    check_perms,
+    command,
+    component,
+    div,
+    doctype,
+    dumps,
+    h1,
+    h2,
+    head,
+    html,
+    hypergen,
+    input_,
+    li,
+    loads,
+    p,
+    span,
+    td,
+    textarea,
+    title,
+    tr,
+    ul,
+)
 from flask_hypergen.context import context, context_middleware, contextlist
 from flask_hypergen.examples.common import make_base_template
 from flask_hypergen.hypergen import compare_funcs
-from flask_hypergen.imports import *
 from flask_hypergen.liveview import LiveviewPlugin
 from flask_hypergen.liveview import callback as cb
 from flask_hypergen.template import TemplatePlugin, join_html
@@ -64,10 +91,12 @@ def test_context_immutable():
 
 
 def test_context_mutable_update_should_fail():
-    with context(my_appname={'title': 'foo', 'items': [1, 2, 3]}):
-        with pytest.raises(Exception):
-            with context(at='my_appname', items=[4, 5]):
-                pass
+    with (
+        context(my_appname={'title': 'foo', 'items': [1, 2, 3]}),
+        pytest.raises(TypeError, match='Not immutable context variable attempted updated'),
+        context(at='my_appname', items=[4, 5]),
+    ):
+        pass
 
 
 def test_context_at_creation():
@@ -87,11 +116,29 @@ def test_context_middleware():
     context_middleware(lambda request: view(request))(Request())
 
 
+def test_check_perms_any_perm_matches_subset():
+    request = Request()
+    request.user.permissions = frozenset({'examples.view'})
+
+    result = check_perms(request, ('examples.edit', 'examples.view'), any_perm=True)
+
+    assert result.ok is True
+    assert result.matched_perms == {'examples.view'}
+
+
+def test_check_perms_raise_exception_for_login_required():
+    request = Request()
+    request.user.is_authenticated = False
+
+    with pytest.raises(Forbidden):
+        check_perms(request, LOGIN_REQUIRED, raise_exception=True)
+
+
 @pytest.mark.xfail(
     reason='Django legacy middleware compatibility is intentionally not part of flask_hypergen',
 )
 def test_context_middleware_old():
-    assert False
+    raise AssertionError()
 
 
 def test_element():
@@ -150,8 +197,8 @@ def test_live_element():
         with context(is_test=True, at='hypergen', **hypergen_context()):
             div('hello world!', onclick=cb('my_url', 42), id_='i1')
             assert (
-                normalized_html()
-                == '<div onclick="hypergen.event(event, \'i1__onclick\')" id="i1">hello world!</div>'
+                normalized_html() == '<div onclick="hypergen.event(event, \'i1__onclick\')" '
+                'id="i1">hello world!</div>'
             )
         with context(is_test=True, at='hypergen', **hypergen_context()):
             source = input_(name='a', id_='field-a')
@@ -174,10 +221,13 @@ def test_live_element():
                     )
                 div(message, class_='form form-write')
             assert normalized_html() == (
-                '<div class="message"><div class="action-left"><span class="clickable">Annullér</span></div>'
+                '<div class="message"><div class="action-left">'
+                '<span class="clickable">Annullér</span></div>'
                 '<div class="action-right"><span class="clickable" '
-                'onclick="hypergen.event(event, \'send-message__onclick\')" id="send-message">Send</span></div>'
-                '<div class="form form-write"><textarea placeholder="myplace" id="message-input"></textarea></div></div>'
+                'onclick="hypergen.event(event, \'send-message__onclick\')" '
+                'id="send-message">Send</span></div>'
+                '<div class="form form-write"><textarea placeholder="myplace" '
+                'id="message-input"></textarea></div></div>'
             )
         with context(is_test=True, at='hypergen', **hypergen_context()):
             input_(autofocus=True)
@@ -204,20 +254,23 @@ def test_live_element2():
             )
             h2('Skift Adgangskode')
             p('Rules:')
-            with div(class_='form'):
-                with div():
-                    with ul(id_='password_verification_smartassness'):
-                        div('TODO')
-                    with div(class_='form'):
-                        div(el1, class_='form-field')
-                        div(el2, class_='form-field')
-                        div('Skift adgangskode', class_='button disabled')
+            with div(class_='form'), div():
+                with ul(id_='password_verification_smartassness'):
+                    div('TODO')
+                with div(class_='form'):
+                    div(el1, class_='form-field')
+                    div(el2, class_='form-field')
+                    div('Skift adgangskode', class_='button disabled')
             assert normalized_html() == (
-                '<h2>Skift Adgangskode</h2><p>Rules:</p><div class="form"><div><ul id="password_verification_smartassness">'
-                '<div>TODO</div></ul><div class="form"><div class="form-field"><input id="id_new_password" '
-                'placeholder="Adgangskode" oninput="hypergen.event(event, \'id_new_password__oninput\')"/></div>'
-                '<div class="form-field"><input id="el2" placeholder="Gentag Adgangskode" '
-                'oninput="hypergen.event(event, \'el2__oninput\')"/></div><div class="button disabled">'
+                '<h2>Skift Adgangskode</h2><p>Rules:</p><div class="form"><div>'
+                '<ul id="password_verification_smartassness"><div>TODO</div></ul>'
+                '<div class="form"><div class="form-field"><input id="id_new_password" '
+                'placeholder="Adgangskode" '
+                'oninput="hypergen.event(event, \'id_new_password__oninput\')"/></div>'
+                '<div class="form-field"><input id="el2" '
+                'placeholder="Gentag Adgangskode" '
+                'oninput="hypergen.event(event, \'el2__oninput\')"/></div>'
+                '<div class="button disabled">'
                 'Skift adgangskode</div></div></div></div>'
             )
 
@@ -263,9 +316,8 @@ def test_components2():
             td(comp1())
         assert normalized_html() == '<tr><td><input value="a"/></td></tr>'
     with context(is_test=True, at='hypergen', **hypergen_context()):
-        with tr():
-            with td():
-                comp1()
+        with tr(), td():
+            comp1()
         assert normalized_html() == '<tr><td><input value="a"/></td></tr>'
 
 
@@ -291,8 +343,8 @@ def test_js_value_func():
             i = input_(js_value_func='a', type_='weidewokvocxkokwoekvd')
             assert (i.js_value_func, i.js_coerce_func) == ('a', None)
 
-        hypergen(template, settings=dict(action=True, target_id='foo'))
-        hypergen(template, settings=dict(liveview=True, target_id='foo'))
+        hypergen(template, settings={'action': True, 'target_id': 'foo'})
+        hypergen(template, settings={'liveview': True, 'target_id': 'foo'})
 
     inner()
 
@@ -311,8 +363,8 @@ def test_eventhandler_cache():
                 '"debug":false,"meta":{},"headers":{},"eachUrlBlocks":true,"timeout":20000}]}'
             )
 
-        hypergen(template, settings=dict(liveview=True, target_id='foo'))
-        hypergen(template, settings=dict(action=True, target_id='foo'))
+        hypergen(template, settings={'liveview': True, 'target_id': 'foo'})
+        hypergen(template, settings={'action': True, 'target_id': 'foo'})
 
     inner()
 
@@ -327,10 +379,21 @@ def test_call_js():
                 '[["hypergen.xyz",["_","element_value",["hypergen.read.value",null,"tcj"]]]]'
             )
 
-        hypergen(template, settings=dict(liveview=True, target_id='foo'))
-        hypergen(template, settings=dict(action=True, target_id='foo'))
+        hypergen(template, settings={'liveview': True, 'target_id': 'foo'})
+        hypergen(template, settings={'action': True, 'target_id': 'foo'})
 
     inner()
+
+
+def test_command_prepend():
+    with context(at='hypergen', **hypergen_context()):
+        command('hypergen.appended')
+        command('hypergen.prepended', prepend=True)
+
+        assert list(context.hypergen.commands) == [
+            ['hypergen.prepended'],
+            ['hypergen.appended'],
+        ]
 
 
 def test_repr():
@@ -338,8 +401,8 @@ def test_repr():
         el1 = input_(id_='el1')
         el2 = input_(onclick=cb('alert', el1), id_='el2')
         assert (
-            repr(el2)
-            == 'input_(onclick=callback("alert", input_(id_="el1"), eachUrlBlocks=True, timeout=20000), id_="el2")'
+            repr(el2) == 'input_(onclick=callback("alert", input_(id_="el1"), '
+            'eachUrlBlocks=True, timeout=20000), id_="el2")'
         )
 
 
@@ -359,6 +422,13 @@ def test_serialization():
     assert loads(dumps(payload)) == payload
 
 
+def test_loads_integer_keys():
+    assert loads('{"1":{"_":["tuple",[1,2]]},"two":2}', integer_keys=True) == {
+        1: (1, 2),
+        'two': 2,
+    }
+
+
 @mock_middleware()
 def test_plugins():
     def template(n):
@@ -374,34 +444,39 @@ def test_plugins():
     html1 = hypergen(
         template,
         2,
-        settings=dict(plugins=[TemplatePlugin(), LiveviewPlugin()], indent=True),
+        settings={'plugins': [TemplatePlugin(), LiveviewPlugin()], 'indent': True},
     )
     html2 = hypergen(
         template2,
         2,
-        settings=dict(plugins=[TemplatePlugin(), LiveviewPlugin()], indent=True),
+        settings={'plugins': [TemplatePlugin(), LiveviewPlugin()], 'indent': True},
     )
-    expected_html = """
-<html>
-    <head>
-        <!--hypergen_liveview_media-->
-        <script src="/flask_hypergen/static/hypergen.js"></script>
-        <script type="application/json" id="hypergen-apply-commands-data">{"_":["deque",[["hypergen.setClientState","hypergen.eventHandlerCallbacks",{}],["history.replaceState",{"callback_url":"mock"},"","mock"]]]}</script>
-        <script>
-                hypergen.ready(() => hypergen.applyCommands(JSON.parse(document.getElementById(
-                    'hypergen-apply-commands-data').textContent, hypergen.reviver)))
-            </script>
-        <title>
-            2
-        </title>
-    </head>
-    <body>
-        <h1>
-            4
-        </h1>
-    </body>
-</html>
-""".strip()
+    expected_html = '\n'.join(
+        [
+            '<html>',
+            '    <head>',
+            '        <!--hypergen_liveview_media-->',
+            '        <script src="/flask_hypergen/static/hypergen.js"></script>',
+            '        <script type="application/json" id="hypergen-apply-commands-data">'
+            '{"_":["deque",[["hypergen.setClientState","hypergen.eventHandlerCallbacks",{}],'
+            '["history.replaceState",{"callback_url":"mock"},"","mock"]]]}</script>',
+            '        <script>',
+            '                hypergen.ready(() => hypergen.applyCommands('
+            'JSON.parse(document.getElementById(',
+            "                    'hypergen-apply-commands-data').textContent, hypergen.reviver)))",
+            '            </script>',
+            '        <title>',
+            '            2',
+            '        </title>',
+            '    </head>',
+            '    <body>',
+            '        <h1>',
+            '            4',
+            '        </h1>',
+            '    </body>',
+            '</html>',
+        ],
+    )
     assert html1.strip() == html2.strip() == expected_html
 
 
@@ -446,7 +521,7 @@ def test_multitargets():
         with context(at='hypergen', target_id='bar'):
             p('bar1')
 
-    full = hypergen(template, settings=dict(returns=FULL))
+    full = hypergen(template, settings={'returns': FULL})
     assert full['html'] == '<p>main</p>'
     assert {k: join_html(v) for k, v in full['context'].hypergen.into.contexts.items()} == {
         '__default_context__': '<p>main</p>',
@@ -465,8 +540,8 @@ def test_inject_html():
     def template2():
         a('b')
 
-    x = hypergen(template1, settings=dict(liveview=True, indent=True)).strip()
-    y = hypergen(template2, settings=dict(liveview=True, indent=True)).strip()
+    x = hypergen(template1, settings={'liveview': True, 'indent': True}).strip()
+    y = hypergen(template2, settings={'liveview': True, 'indent': True}).strip()
     assert '<script src="/flask_hypergen/static/hypergen.js"></script>' in x
     assert '<head>' in x and '<a>' in x
     assert y.startswith('<!--hypergen_liveview_media-->')

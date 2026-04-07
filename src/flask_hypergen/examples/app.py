@@ -13,7 +13,7 @@ from flask_hypergen.examples.sqlalchemy_counter import default_database_url
 from flask_hypergen.examples.sqlalchemy_counter import make_blueprint as make_sqlalchemy_blueprint
 
 
-def create_app(testing=False, database_url=None):
+def create_app(testing: bool = False, database_url: str | None = None) -> Flask:
     app = Flask(__name__)
     app.config.update(SECRET_KEY='flask-hypergen-dev', TESTING=testing)
     init_app(app)
@@ -22,7 +22,7 @@ def create_app(testing=False, database_url=None):
     login_manager.init_app(app)
 
     @login_manager.user_loader
-    def _load_user(user_id):
+    def _load_user(user_id: str) -> auth.DemoUser | None:
         return auth.user_load(user_id)
 
     app.register_blueprint(auth.bp)

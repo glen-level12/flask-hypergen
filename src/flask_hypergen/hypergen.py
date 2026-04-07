@@ -10,7 +10,7 @@ import logging
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from flask import Flask, Response, current_app, redirect, url_for
+from flask import Flask, Request, Response, current_app, redirect, url_for
 from werkzeug.exceptions import Forbidden
 
 from flask_hypergen.context import context, user_resolve
@@ -105,7 +105,7 @@ def is_collection(value: Any) -> bool:
 
 
 def check_perms(
-    request: Any,
+    request: Request,
     perm: str | tuple[str, ...],
     login_url: str | None = None,
     raise_exception: bool = False,
