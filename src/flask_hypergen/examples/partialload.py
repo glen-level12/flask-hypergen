@@ -1,8 +1,10 @@
-# ruff: noqa: F403, F405
+from __future__ import annotations
+
+from collections.abc import Callable
 
 from flask import Blueprint
 
-from flask_hypergen import *
+from flask_hypergen import NO_PERM_REQUIRED, a, div, h2, liveview, p
 from flask_hypergen.examples.common import make_base_template
 
 
@@ -10,7 +12,11 @@ bp = Blueprint('partialload', __name__, url_prefix='/partialload')
 BASE_TEMPLATE = make_base_template('Partial Load')
 
 
-def page_template(page_name, first_link, second_link):
+def page_template(
+    page_name: str,
+    first_link: Callable[..., object],
+    second_link: Callable[..., object],
+) -> None:
     h2('Partial loading with history support')
     p('This example demonstrates shared base-template navigation with browser history support.')
     p(f'Current page: {page_name}', id_='partial-page')
@@ -22,15 +28,15 @@ def page_template(page_name, first_link, second_link):
 
 
 @liveview(bp, '/page1', perm=NO_PERM_REQUIRED, base_template=BASE_TEMPLATE)
-def page1(request):
+def page1(request) -> None:
     page_template('page1', page2, page3)
 
 
 @liveview(bp, '/page2', perm=NO_PERM_REQUIRED, base_template=BASE_TEMPLATE)
-def page2(request):
+def page2(request) -> None:
     page_template('page2', page1, page3)
 
 
 @liveview(bp, '/page3', perm=NO_PERM_REQUIRED, base_template=BASE_TEMPLATE)
-def page3(request):
+def page3(request) -> None:
     page_template('page3', page1, page2)

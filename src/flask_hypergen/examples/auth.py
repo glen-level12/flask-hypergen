@@ -1,11 +1,12 @@
-# ruff: noqa: F403, F405
+from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from flask import Blueprint, abort, redirect, request, url_for
 from flask_login import UserMixin, current_user, login_user, logout_user
 
-from flask_hypergen import *
+from flask_hypergen import LOGIN_REQUIRED, a, action, button, callback, h2, liveview, p
 from flask_hypergen.examples.common import make_base_template
 
 
@@ -18,10 +19,10 @@ class DemoUser(UserMixin):
     id: str
     permissions: frozenset[str] = field(default_factory=frozenset)
 
-    def has_perm(self, permission):
+    def has_perm(self, permission: str) -> bool:
         return permission in self.permissions
 
-    def has_perms(self, permissions):
+    def has_perms(self, permissions: Iterable[str]) -> bool:
         return set(permissions) <= set(self.permissions)
 
 
@@ -31,11 +32,11 @@ _DEMO_USERS = {
 }
 
 
-def user_load(user_id):
+def user_load(user_id: str):
     return _DEMO_USERS.get(user_id)
 
 
-def protected_template(message, *, show_action=False):
+def protected_template(message: str, *, show_action: bool = False) -> None:
     h2('Authenticated view')
     p(message, id_='auth-message')
     p(f'Signed in as {current_user.id}', id_='auth-status')
@@ -70,7 +71,7 @@ def logout():
     base_template=BASE_TEMPLATE,
     login_url='auth.login',
 )
-def protected(request):
+def protected(request) -> None:
     protected_template('This page requires an authenticated user.')
 
 
@@ -81,7 +82,7 @@ def protected(request):
     base_template=BASE_TEMPLATE,
     login_url='auth.login',
 )
-def editor(request):
+def editor(request) -> None:
     protected_template('This page requires the examples.edit permission.', show_action=True)
 
 
@@ -93,5 +94,5 @@ def editor(request):
     base_view=editor,
     login_url='auth.login',
 )
-def update_message(request, message):
+def update_message(request, message: str) -> None:
     protected_template(message, show_action=True)

@@ -1,18 +1,28 @@
-# ruff: noqa: F403, F405, SIM117
+from __future__ import annotations
 
 from collections import OrderedDict
+from collections.abc import Callable
 from contextlib import ContextDecorator, ExitStack, contextmanager
 from copy import deepcopy
+from dataclasses import dataclass, field
 from datetime import datetime
 from functools import wraps
 from pprint import pformat
 from types import GeneratorType
+from typing import Any
 
 from flask import Response
 
+from flask_hypergen.context import Context, contextlist
 from flask_hypergen.context import context as c
-from flask_hypergen.context import contextlist
-from flask_hypergen.hypergen import *
+from flask_hypergen.hypergen import (
+    is_collection,
+    make_string,
+    plugins_exit_stack,
+    plugins_method_call,
+    plugins_pipeline,
+    t,
+)
 from flask_hypergen.plugins.appstate import AppstatePlugin
 
 
@@ -69,54 +79,110 @@ class TemplatePlugin:
             yield
 
 
-def hypergen(template, *args, **kwargs):
-    assert 'request' in c, "The 'flask_hypergen.context.context_init_app' hook must be installed!"
-    settings = kwargs.pop('settings', {})
-    plugins = settings.get('plugins', [TemplatePlugin()])
-    if settings.get('liveview', False):
+@dataclass
+class HypergenSettings:
+    plugins: list[object] = field(default_factory=list)
+    liveview: bool = False
+    action: bool = False
+    returns: str = HTML
+    indent: bool = False
+    base_template: Callable[..., Any] | None = None
+    target_id: str | None = None
+    appstate: Any = None
+    namespace: str | None = None
+    base_view: Callable[..., Any] | None = None
+    prepend_commands: bool = True
+    user_plugins: list[object] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class HypergenResult:
+    html: str
+    context: Context
+    template_result: Any
+
+    def __getitem__(self, key: str) -> Any:
+        return getattr(self, key)
+
+
+def settings_load(settings: dict[str, Any] | None) -> HypergenSettings:
+    data = dict(settings or {})
+    return HypergenSettings(
+        plugins=list(data.get('plugins', [])),
+        liveview=bool(data.get('liveview', False)),
+        action=bool(data.get('action', False)),
+        returns=data.get('returns', HTML),
+        indent=bool(data.get('indent', False)),
+        base_template=data.get('base_template'),
+        target_id=data.get('target_id'),
+        appstate=data.get('appstate'),
+        namespace=data.get('namespace'),
+        base_view=data.get('base_view'),
+        prepend_commands=bool(data.get('prepend_commands', True)),
+        user_plugins=list(data.get('user_plugins', [])),
+    )
+
+
+def plugins_build(settings: HypergenSettings) -> list[object]:
+    plugins = list(settings.plugins) if settings.plugins else [TemplatePlugin()]
+    if settings.liveview:
         from flask_hypergen.liveview import LiveviewPlugin
 
         plugins.append(LiveviewPlugin())
-    if settings.get('action', False):
+    if settings.action:
         from flask_hypergen.liveview import ActionPlugin
 
         plugins.append(
             ActionPlugin(
-                target_id=settings.get('target_id', None),
-                base_view=settings.get('base_view', None),
-                prepend_commands=settings.get('prepend_commands', True),
+                target_id=settings.target_id,
+                base_view=settings.base_view,
+                prepend_commands=settings.prepend_commands,
             ),
         )
-    if settings.get('appstate', False):
-        namespace = getattr(settings['appstate'], 'namespace', settings.get('namespace', None))
+    if settings.appstate is not None:
+        namespace = getattr(settings.appstate, 'namespace', settings.namespace)
         assert namespace, 'When appstate is set, namespace must be too.'
-        plugins.append(AppstatePlugin(namespace, settings['appstate']))
-    returns = settings.get('returns', HTML)
+        plugins.append(AppstatePlugin(namespace, settings.appstate))
+    plugins.extend(settings.user_plugins)
+    return plugins
+
+
+def html_indent(html: str) -> str:
+    if not yattag_ok:
+        raise Exception("Do 'pip install yattag' to use the indent feature.")
+    return indent_(html, indentation='    ', newline='\n', indent_text=True)
+
+
+def hypergen(template, *args, **kwargs):
+    assert 'request' in c, "The 'flask_hypergen.context.context_init_app' hook must be installed!"
+    settings = settings_load(kwargs.pop('settings', None))
+    plugins = plugins_build(settings)
+    returns = settings.returns
     assert returns in HYPERGEN_RETURNS, (
         f"The 'returns' hypergen setting must be one of {HYPERGEN_RETURNS!r}"
     )
-    indent = settings.get('indent', False)
-    base_template = settings.get('base_template', None)
-    plugins.extend(settings.get('user_plugins', []))
-    with c(at='hypergen', plugins=plugins, base_template=base_template):
-        with plugins_exit_stack('context'):
-            plugins_method_call('template_before')
-            template_result = (base_template()(template) if base_template else template)(
-                *args,
-                **kwargs,
-            )
-            plugins_method_call('template_after', template_result=template_result)
-            html = join_html(c.hypergen.into) if 'into' in c.hypergen else ''
-            html = plugins_pipeline('process_html', html)
-            if indent:
-                if not yattag_ok:
-                    raise Exception("Do 'pip install yattag' to use the indent feature.")
-                html = indent_(html, indentation='    ', newline='\n', indent_text=True)
-            if returns == HTML:
-                return html
-            if returns == COMMANDS:
-                return c.hypergen.commands
-            return {'html': html, 'context': c.clone(), 'template_result': template_result}
+    with (
+        c(at='hypergen', plugins=plugins, base_template=settings.base_template),
+        plugins_exit_stack(
+            'context',
+        ),
+    ):
+        plugins_method_call('template_before')
+        template_func = settings.base_template()(template) if settings.base_template else template
+        template_result = template_func(
+            *args,
+            **kwargs,
+        )
+        plugins_method_call('template_after', template_result=template_result)
+        html = join_html(c.hypergen.into) if 'into' in c.hypergen else ''
+        html = plugins_pipeline('process_html', html)
+        if settings.indent:
+            html = html_indent(html)
+        if returns == HTML:
+            return html
+        if returns == COMMANDS:
+            return c.hypergen.commands
+        return HypergenResult(html=html, context=c.clone(), template_result=template_result)
 
 
 def hypergen_to_response(func, *args, **kwargs):
@@ -161,9 +227,15 @@ def rst(restructured_text, report_level=None):
 
 
 def hprint(*args, **kwargs):
+    div_tag = globals()['div']
+    span_tag = globals()['span']
+    pre_tag = globals()['pre']
+    code_tag = globals()['code']
+    bold_tag = globals()['b']
+
     @component
     def typeinfo(x):
-        span(
+        span_tag(
             ' (',
             x.__class__.__module__,
             '.',
@@ -173,9 +245,9 @@ def hprint(*args, **kwargs):
         )
 
     def fmt(x):
-        pre(code(pformat(x, width=120)), style={})
+        pre_tag(code_tag(pformat(x, width=120)), style={})
 
-    with div(
+    with div_tag(
         style={
             'padding': '8px',
             'margin': '4px 0 0 0',
@@ -185,14 +257,14 @@ def hprint(*args, **kwargs):
         },
     ):
         if len(args) == 1 and not kwargs:
-            div(typeinfo(args[0]))
+            div_tag(typeinfo(args[0]))
             fmt(args[0])
         else:
             for i, arg in enumerate(args, 1):
-                div(b('arg', i, sep=' '), typeinfo(arg))
+                div_tag(bold_tag('arg', i, sep=' '), typeinfo(arg))
                 fmt(arg)
         for key, value in kwargs.items():
-            div(b(key), typeinfo(value))
+            div_tag(bold_tag(key), typeinfo(value))
             fmt(value)
 
 
@@ -570,7 +642,7 @@ for _name in _TAG_NAMES:
         continue
     base_cls = base_element_void if _name in _VOID_TAGS else base_element
     globals()[_name] = type(_name, (base_cls,), {})
-time = time_
+time = globals()['time_']
 
 __all__ = [
     *_TAG_NAMES,
@@ -578,6 +650,8 @@ __all__ = [
     'Component',
     'FULL',
     'HTML',
+    'HypergenResult',
+    'HypergenSettings',
     'HYPERGEN_RETURNS',
     'OMIT',
     'TemplatePlugin',
@@ -594,7 +668,9 @@ __all__ = [
     'join_html',
     'link',
     'on_url',
+    'plugins_build',
     'raw',
+    'settings_load',
     'script',
     'style',
     'time',

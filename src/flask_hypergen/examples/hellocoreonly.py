@@ -1,8 +1,17 @@
-# ruff: noqa: F403, F405
+from __future__ import annotations
 
 from flask import Blueprint, Response, request
 
-from flask_hypergen import *
+from flask_hypergen import (
+    COMMANDS,
+    callback,
+    h2,
+    hypergen,
+    json_commands_response,
+    loads,
+    p,
+    route_register,
+)
 from flask_hypergen.examples.common import counter_fragment, make_base_template
 
 
@@ -10,14 +19,14 @@ bp = Blueprint('hellocoreonly', __name__, url_prefix='/hellocoreonly')
 BASE_TEMPLATE = make_base_template('Hello Core Only')
 
 
-def counter_template(n):
+def counter_template(n: int) -> None:
     h2('Core-only wiring')
     p('This example uses explicit Flask routes with function-based callback reverse wiring.')
     counter_fragment(n, callback(increment, n))
 
 
 @bp.get('/counter')
-def counter():
+def counter() -> Response:
     return Response(
         hypergen(counter_template, 0, settings={'liveview': True, 'base_template': BASE_TEMPLATE}),
         mimetype='text/html',

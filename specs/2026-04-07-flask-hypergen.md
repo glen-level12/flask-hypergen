@@ -289,7 +289,19 @@ Current direction:
 - Added a self-contained `auth` example demonstrating login, logout, authenticated liveviews, and permission-protected actions.
 - Completed the callback/reverse DevX follow-up by making `route_register(..., methods=['POST'])` mark explicit POST routes as callback-capable, and updated `hellocoreonly` to use function-based callback reverse wiring instead of raw `url_for()`.
 - Completed the `partialload` follow-up by porting a Flask `partialload` example and adding request + Playwright coverage for partial navigation/history behavior.
-- The wildcard-import `# ruff: noqa` suppressions remain in the ported/import-surface files as an intentional Hypergen-style tradeoff, but the public API test now gives cheap protection against import wiring regressions.
+
+## Style/architecture refactor notes (2026-04-07)
+
+- Refactored the Flask Hypergen implementation toward the explicit, typed, modular style used by `tasks/agent.py`.
+- Removed the Flask Hypergen file-level wildcard-import `# ruff: noqa` suppressions from the library core and examples.
+- Reworked `src/flask_hypergen/imports.py` and `src/flask_hypergen/__init__.py` to use explicit module aggregation instead of star-import re-export chains.
+- Replaced implicit cross-module name flow in the examples with explicit imports from `flask_hypergen`.
+- Added stronger typing and clearer helper boundaries in the core modules:
+  - `context.py` now has typed context helpers and a clearer request-context construction path.
+  - `hypergen.py` now uses typed data structures for resolver and permission-check results.
+  - `template.py` now uses `HypergenSettings` and `HypergenResult` dataclasses instead of ad-hoc settings/result dict shaping in the render pipeline.
+  - `liveview.py` now uses explicit imports and smaller named helpers for callback redirect handling and namespace resolution.
+- Kept the public Hypergen API intact while reducing the Django-carried architectural patterns that made the Flask port harder to read and maintain.
 
 ## Current status
 

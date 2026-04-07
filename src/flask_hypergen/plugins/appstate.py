@@ -1,13 +1,19 @@
+from __future__ import annotations
+
 from contextlib import contextmanager
 import pickle
+from typing import Any
 
 from flask import session
 
 from flask_hypergen.context import context
 
 
+__all__ = ['AppstatePlugin']
+
+
 class AppstatePlugin:
-    def __init__(self, namespace, appstate):
+    def __init__(self, namespace: str, appstate: Any) -> None:
         self.namespace = namespace
         self.appstate = appstate
 

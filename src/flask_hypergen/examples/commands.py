@@ -1,8 +1,8 @@
-# ruff: noqa: F403, F405
+from __future__ import annotations
 
 from flask import Blueprint
 
-from flask_hypergen import *
+from flask_hypergen import NO_PERM_REQUIRED, action, button, callback, command, div, h2, liveview, p
 from flask_hypergen.examples.common import make_base_template
 
 
@@ -10,14 +10,14 @@ bp = Blueprint('commands', __name__, url_prefix='/commands')
 BASE_TEMPLATE = make_base_template('Commands')
 
 
-def commands_template(message='Ready'):
+def commands_template(message: str = 'Ready') -> None:
     h2('Explicit command responses')
     p(message, id_='message')
     div(button('Send command', id_='send-command', onclick=callback(send_command)), class_='stack')
 
 
 @liveview(bp, '/demo', perm=NO_PERM_REQUIRED, base_template=BASE_TEMPLATE)
-def demo(request):
+def demo(request) -> None:
     commands_template()
 
 

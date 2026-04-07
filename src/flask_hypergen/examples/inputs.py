@@ -1,8 +1,20 @@
-# ruff: noqa: F403, F405
+from __future__ import annotations
 
 from flask import Blueprint
 
-from flask_hypergen import *
+from flask_hypergen import (
+    NO_PERM_REQUIRED,
+    action,
+    button,
+    callback,
+    div,
+    h2,
+    input_,
+    label,
+    liveview,
+    p,
+    span,
+)
 from flask_hypergen.examples.common import make_base_template
 
 
@@ -10,7 +22,7 @@ bp = Blueprint('inputs', __name__, url_prefix='/inputs')
 BASE_TEMPLATE = make_base_template('Inputs')
 
 
-def summary_template(name='', age=0, subscribed=False):
+def summary_template(name: str = '', age: int = 0, subscribed: bool = False) -> None:
     h2('Read values from the browser')
     with div(class_='stack'):
         name_input = input_(id_='name', placeholder='Name', value=name)
@@ -28,10 +40,10 @@ def summary_template(name='', age=0, subscribed=False):
 
 
 @liveview(bp, '/demo', perm=NO_PERM_REQUIRED, base_template=BASE_TEMPLATE)
-def demo(request):
+def demo(request) -> None:
     summary_template()
 
 
 @action(bp, '/submit', perm=NO_PERM_REQUIRED, target_id='content', base_view=demo)
-def submit(request, name, age, subscribed):
+def submit(request, name: str, age: int, subscribed: bool) -> None:
     summary_template(name, age, subscribed)

@@ -1,9 +1,13 @@
+from __future__ import annotations
+
+from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import update_wrapper
 from html import escape
 import inspect
 import logging
+from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from flask import Flask, Response, current_app, redirect, url_for
@@ -16,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     'AUTOURL_WSGI_ERR_MSG',
+    'PermissionCheck',
     'ResolverMatch',
     'autourl_register',
     'autourls',
@@ -46,48 +51,51 @@ _ENDPOINTS = {}
 @dataclass
 class ResolverMatch:
     func: object | None
-    args: tuple = ()
-    kwargs: dict | None = None
-
-    def __post_init__(self):
-        if self.kwargs is None:
-            self.kwargs = {}
+    args: tuple[Any, ...] = ()
+    kwargs: dict[str, Any] = field(default_factory=dict)
 
 
-def make_string(value):
+@dataclass(frozen=True)
+class PermissionCheck:
+    ok: bool
+    response: Response | None = None
+    matched_perms: set[str] = field(default_factory=set)
+
+
+def make_string(value: Any) -> str:
     return '' if value is None else str(value)
 
 
-def t(value, quote=True):
+def t(value: Any, quote: bool = True) -> str:
     return escape(make_string(value), quote=quote)
 
 
-def wrap2(func):
-    def _(*args, **kwargs):
+def wrap2(func: Callable[..., Any]) -> Callable[..., Any]:
+    def decorator(*args: Any, **kwargs: Any) -> Any:
         if len(args) == 1 and not kwargs and callable(args[0]):
             wrapped = func(args[0])
             update_wrapper(wrapped, args[0])
             return wrapped
 
-        def f3(f4):
-            wrapped = func(f4, *args, **kwargs)
-            update_wrapper(wrapped, f4)
+        def wrapper(inner_func: Callable[..., Any]) -> Any:
+            wrapped = func(inner_func, *args, **kwargs)
+            update_wrapper(wrapped, inner_func)
             return wrapped
 
-        return f3
+        return wrapper
 
-    return _
+    return decorator
 
 
-def compare_funcs(a, b):
+def compare_funcs(a: Any, b: Any) -> bool:
     return all(
         getattr(a, key) == getattr(b, key)
         for key in ('__doc__', '__name__', '__module__', '__qualname__')
     )
 
 
-def is_collection(value):
-    if type(value) in [str, metastr]:
+def is_collection(value: Any) -> bool:
+    if isinstance(value, (str, metastr)):
         return False
     try:
         iter(value)
@@ -97,21 +105,20 @@ def is_collection(value):
 
 
 def check_perms(
-    request,
-    perm,
-    login_url=None,
-    raise_exception=False,
-    any_perm=False,
-    redirect_field_name=None,
-):
+    request: Any,
+    perm: str | tuple[str, ...],
+    login_url: str | None = None,
+    raise_exception: bool = False,
+    any_perm: bool = False,
+    redirect_field_name: str | None = None,
+) -> PermissionCheck:
     from flask_hypergen.liveview import LOGIN_REQUIRED, NO_PERM_REQUIRED
 
-    matched_perms = set()
     if perm == NO_PERM_REQUIRED:
-        return True, None, matched_perms
+        return PermissionCheck(ok=True)
     assert perm, 'perm= is required'
 
-    def auth_failure_response():
+    def auth_failure_response() -> Response:
         if raise_exception:
             raise Forbidden()
         login_target = login_url
@@ -129,14 +136,14 @@ def check_perms(
         query.setdefault(redirect_name, next_value)
         return redirect(urlunsplit(split._replace(query=urlencode(query))))
 
-    def is_authenticated(user):
+    def is_authenticated(user: Any) -> bool:
         return bool(user and getattr(user, 'is_authenticated', False))
 
-    def has_perm(user, name):
+    def has_perm(user: Any, name: str) -> bool:
         checker = getattr(user, 'has_perm', None)
         return checker(name) if checker else False
 
-    def has_perms(user, names):
+    def has_perms(user: Any, names: tuple[str, ...]) -> bool:
         checker = getattr(user, 'has_perms', None)
         if checker:
             return checker(names)
@@ -145,66 +152,82 @@ def check_perms(
     user = user_resolve(request) or getattr(context, 'user', None)
     if perm == LOGIN_REQUIRED:
         if is_authenticated(user):
-            return True, None, matched_perms
-        return False, auth_failure_response(), matched_perms
+            return PermissionCheck(ok=True)
+        return PermissionCheck(ok=False, response=auth_failure_response())
 
     perms = (perm,) if isinstance(perm, str) else tuple(perm)
     if not is_authenticated(user):
-        return False, auth_failure_response(), matched_perms
+        return PermissionCheck(ok=False, response=auth_failure_response())
     if any_perm is not True:
         if has_perms(user, perms):
-            matched_perms = set(perms)
-            return True, None, matched_perms
+            return PermissionCheck(ok=True, matched_perms=set(perms))
     else:
         matched_perms = {name for name in perms if has_perm(user, name)}
         if matched_perms:
-            return True, None, matched_perms
+            return PermissionCheck(ok=True, matched_perms=matched_perms)
     if raise_exception:
         raise Forbidden()
-    return False, Response(status=403), matched_perms
+    return PermissionCheck(ok=False, response=Response(status=403))
 
 
 class metastr(str):
     @staticmethod
-    def make(string, meta):
+    def make(string: str, meta: dict[str, Any]) -> metastr:
         value = metastr(string)
         value.meta = meta
         return value
 
 
-def _qualified_endpoint(router, endpoint):
+def _qualified_endpoint(router: Any, endpoint: str) -> str:
     if router is None or isinstance(router, Flask):
         return endpoint
     return f'{router.name}.{endpoint}'
 
 
-def _reverse_factory(func, endpoint, base_template=None):
+def _reverse_factory(
+    func: Callable[..., Any],
+    endpoint: str,
+    base_template: Callable[..., Any] | None = None,
+) -> Callable[..., metastr]:
     signature = inspect.signature(getattr(func, 'original_func', func))
     param_names = [name for name in signature.parameters if name != 'request']
 
-    def _reverse(*view_args, **view_kwargs):
+    def reverse(*view_args: Any, **view_kwargs: Any) -> metastr:
         if len(view_args) > len(param_names):
             raise TypeError(f'Too many positional arguments for reverse() on {func.__name__}')
         params = dict(zip(param_names, view_args, strict=False))
         params.update(view_kwargs)
         return metastr.make(url_for(endpoint, **params), {'base_template': base_template})
 
-    _reverse.hypergen_endpoint = endpoint
-    return _reverse
+    reverse.hypergen_endpoint = endpoint
+    return reverse
 
 
-def autourl_register(func, base_template=None, path=None, re_path=None):
+def autourl_register(
+    func: Callable[..., Any],
+    base_template: Callable[..., Any] | None = None,
+    path: str | None = None,
+    re_path: str | None = None,
+) -> Callable[..., Any]:
     module = func.__module__
     _URLS.setdefault(module, set())
     _URLS[module].add((func, path, re_path, base_template))
     return func
 
 
-def autourls(module, namespace):
+def autourls(module: Any, namespace: str) -> list[tuple[Any, Any, Any, Any]]:
     return [item for item in _URLS.get(module.__name__, []) if namespace]
 
 
-def route_register(router, func, *, rule=None, methods=None, endpoint=None, base_template=None):
+def route_register(
+    router: Any,
+    func: Callable[..., Any],
+    *,
+    rule: str | None = None,
+    methods: list[str] | tuple[str, ...] | None = None,
+    endpoint: str | None = None,
+    base_template: Callable[..., Any] | None = None,
+) -> Callable[..., Any]:
     methods = list(methods or ['GET'])
     endpoint = endpoint or func.__name__
     qualified_endpoint = _qualified_endpoint(router, endpoint)
@@ -222,7 +245,7 @@ def route_register(router, func, *, rule=None, methods=None, endpoint=None, base
     return func
 
 
-def resolve_url(url, method='GET'):
+def resolve_url(url: str, method: str = 'GET') -> ResolverMatch:
     path = urlsplit(url).path or url
     adapter = current_app.url_map.bind('localhost')
     endpoint, kwargs = adapter.match(path, method=method)
@@ -230,7 +253,7 @@ def resolve_url(url, method='GET'):
 
 
 @contextmanager
-def plugins_exit_stack(method_name):
+def plugins_exit_stack(method_name: str) -> Iterator[None]:
     with ExitStack() as stack:
         for plugin in context.hypergen.plugins:
             if hasattr(plugin, method_name):
@@ -238,14 +261,14 @@ def plugins_exit_stack(method_name):
         yield
 
 
-def plugins_method_call(method_name, *args, **kwargs):
+def plugins_method_call(method_name: str, *args: Any, **kwargs: Any) -> None:
     for plugin in context.hypergen.plugins:
         method = getattr(plugin, method_name, None)
         if method:
             method(*args, **kwargs)
 
 
-def plugins_pipeline(method_name, data, kwargs=None):
+def plugins_pipeline(method_name: str, data: Any, kwargs: dict[str, Any] | None = None) -> Any:
     kwargs = kwargs or {}
     for plugin in context.hypergen.plugins:
         method = getattr(plugin, method_name, None)

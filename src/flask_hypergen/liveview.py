@@ -1,47 +1,68 @@
-# ruff: noqa: F403, F405, C408, RUF022, SIM910
+from __future__ import annotations
 
 from collections import deque
+from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import date, datetime
 from datetime import time as dt_time
 from functools import wraps
 import json
+from typing import Any
 
 from flask import Blueprint, Response, current_app, has_app_context
 from flask import request as flask_request
 
 from flask_hypergen.context import c, context, context_init_app, contextlist
 import flask_hypergen.hypergen as hypergen_mod
-from flask_hypergen.hypergen import *
-from flask_hypergen.hypergen import metastr
-from flask_hypergen.template import *
-from flask_hypergen.template import base_element, join_html
+from flask_hypergen.hypergen import (
+    ResolverMatch,
+    check_perms,
+    compare_funcs,
+    metastr,
+    resolve_url,
+    route_register,
+    t,
+    wrap2,
+)
+from flask_hypergen.template import (
+    FULL,
+    a,
+    base_element,
+    hypergen,
+    input_,
+    join_html,
+    raw,
+    script,
+    select,
+)
 
 
-__all__ = [
-    'ASSETS_BLUEPRINT',
-    'ActionPlugin',
-    'COERCE',
-    'EVENT',
-    'JS_COERCE_FUNCS',
-    'JS_VALUE_FUNCS',
-    'LOGIN_REQUIRED',
-    'LiveviewPlugin',
-    'NO_PERM_REQUIRED',
-    'THIS',
-    'action',
-    'call_js',
-    'callback',
-    'command',
-    'decoder',
-    'dumps',
-    'encoder',
-    'init_app',
-    'json_commands_response',
-    'liveview',
-    'loads',
-    'url_is_active',
-]
+__all__ = sorted(
+    [
+        'ASSETS_BLUEPRINT',
+        'ActionPlugin',
+        'COERCE',
+        'EVENT',
+        'JS_COERCE_FUNCS',
+        'JS_VALUE_FUNCS',
+        'LOGIN_REQUIRED',
+        'LiveviewPlugin',
+        'NO_PERM_REQUIRED',
+        'THIS',
+        'action',
+        'call_js',
+        'callback',
+        'command',
+        'decoder',
+        'dumps',
+        'encoder',
+        'init_app',
+        'json_commands_response',
+        'liveview',
+        'loads',
+        'url_is_active',
+    ],
+)
 
 
 class THIS:
@@ -55,19 +76,19 @@ class EVENT:
 LOGIN_REQUIRED = '__LOGIN_REQUIRED__'
 NO_PERM_REQUIRED = '__NO_PERM_REQUIRED__'
 COERCE = {str: 'hypergen.coerce.str', int: 'hypergen.coerce.int', float: 'hypergen.coerce.float'}
-JS_VALUE_FUNCS = dict(
-    checkbox='hypergen.read.checked',
-    radio='hypergen.read.radio',
-    file='hypergen.read.file',
-)
-JS_COERCE_FUNCS = dict(
-    month='hypergen.coerce.month',
-    number='hypergen.coerce.int',
-    range='hypergen.coerce.float',
-    week='hypergen.coerce.week',
-    date='hypergen.coerce.date',
-    time='hypergen.coerce.time',
-)
+JS_VALUE_FUNCS = {
+    'checkbox': 'hypergen.read.checked',
+    'radio': 'hypergen.read.radio',
+    'file': 'hypergen.read.file',
+}
+JS_COERCE_FUNCS = {
+    'month': 'hypergen.coerce.month',
+    'number': 'hypergen.coerce.int',
+    'range': 'hypergen.coerce.float',
+    'week': 'hypergen.coerce.week',
+    'date': 'hypergen.coerce.date',
+    'time': 'hypergen.coerce.time',
+}
 JS_COERCE_FUNCS['datetime-local'] = 'hypergen.coerce.datetime'
 ASSETS_BLUEPRINT = Blueprint(
     'flask_hypergen',
@@ -77,7 +98,7 @@ ASSETS_BLUEPRINT = Blueprint(
 )
 
 
-def init_app(app):
+def init_app(app: Any) -> Any:
     context_init_app(app)
     if ASSETS_BLUEPRINT.name not in app.blueprints:
         app.register_blueprint(ASSETS_BLUEPRINT)
@@ -85,7 +106,7 @@ def init_app(app):
     return app
 
 
-def _request_header(request, key):
+def _request_header(request: Any, key: str) -> Any:
     if hasattr(request, 'headers'):
         value = request.headers.get(key)
         if value:
@@ -98,7 +119,7 @@ def _request_header(request, key):
     return environ.get(env_key)
 
 
-def _request_path(request):
+def _request_path(request: Any) -> str:
     if hasattr(request, 'full_path'):
         return request.full_path.rstrip('?')
     if hasattr(request, 'get_full_path'):
@@ -106,13 +127,13 @@ def _request_path(request):
     return getattr(request, 'path', '/')
 
 
-def _static_hypergen_path():
+def _static_hypergen_path() -> str:
     if has_app_context() and 'flask_hypergen' in current_app.blueprints:
         return ASSETS_BLUEPRINT.static_url_path + '/hypergen.js'
     return '/flask_hypergen/static/hypergen.js'
 
 
-def liveview_resolver_match(for_action=False):
+def liveview_resolver_match(for_action: bool = False) -> ResolverMatch | None:
     if not for_action:
         endpoint = getattr(c.request, 'endpoint', None)
         kwargs = getattr(c.request, 'view_args', {}) or {}
@@ -124,15 +145,31 @@ def liveview_resolver_match(for_action=False):
     return None
 
 
-def url_is_active(url):
+def url_is_active(url: str) -> bool:
     current = context.hypergen.liveview_resolver_match
     target = resolve_url(url)
     return current and target and current.func is target.func
 
 
+def callback_redirect_response(response: Response) -> Response:
+    return json_commands_response(
+        [['hypergen.redirect', response.location]],
+        status=response.status_code,
+    )
+
+
+def namespace_resolve(func: Callable[..., Any]) -> str:
+    return getattr(func, 'hypergen_endpoint', getattr(func, '__name__', 'hypergen'))
+
+
 class LiveviewPluginBase:
     @contextmanager
-    def wrap_element_init(self, element, children, attrs):
+    def wrap_element_init(
+        self,
+        element: base_element,
+        children: list[Any],
+        attrs: dict[str, Any],
+    ):
         coerce_to = attrs.pop('coerce_to', None)
         if coerce_to is not None:
             try:
@@ -147,7 +184,7 @@ class LiveviewPluginBase:
                 JS_VALUE_FUNCS.get(attrs.get('type_', 'text'), 'hypergen.read.value'),
             )
             if not element.js_coerce_func:
-                element.js_coerce_func = JS_COERCE_FUNCS.get(attrs.get('type_', 'text'), None)
+                element.js_coerce_func = JS_COERCE_FUNCS.get(attrs.get('type_', 'text'))
         elif isinstance(element, select):
             if attrs.get('multiple') is True:
                 element.js_value_func = attrs.pop('js_value_func', 'hypergen.read.selectMultiple')
@@ -168,13 +205,13 @@ class LiveviewPluginBase:
                 if attrs.get('contenteditable', False) is True
                 else 'hypergen.read.value',
             )
-        if isinstance(element, a) and attrs.get('target', None) in (None, '_self'):
-            href = attrs.get('href', None)
+        if isinstance(element, a) and attrs.get('target') in (None, '_self'):
+            href = attrs.get('href')
             partial = attrs.pop('partial', True)
             if partial and type(href) is metastr:
-                base_template1 = href.meta.get('base_template', None)
+                base_template1 = href.meta.get('base_template')
                 if base_template1 is not None:
-                    base_template2 = c.hypergen.get('partial_base_template', None)
+                    base_template2 = c.hypergen.get('partial_base_template')
                     if base_template2 is not None and compare_funcs(base_template1, base_template2):
                         attrs['onclick'] = f"hypergen.partialLoad(event, '{href}', true)"
         yield
@@ -186,8 +223,8 @@ class LiveviewPlugin(LiveviewPluginBase):
         with c(at='hypergen', event_handler_callbacks={}, commands=deque()):
             yield
 
-    def process_html(self, html):
-        def template():
+    def process_html(self, html_output):
+        def template() -> None:
             raw('<!--hypergen_liveview_media-->')
             script(src=_static_hypergen_path())
             script(
@@ -208,22 +245,28 @@ class LiveviewPlugin(LiveviewPluginBase):
             c.hypergen.event_handler_callbacks,
         )
         path = _request_path(c.request)
-        command('history.replaceState', dict(callback_url=path), '', path)
-        if '<head>' in html:
-            assert html.count('<head>') == 1, (
+        command('history.replaceState', {'callback_url': path}, '', path)
+        if '<head>' in html_output:
+            assert html_output.count('<head>') == 1, (
                 'Ooops, multiple <head> tags found. There can be only one!'
             )
-            return html.replace('<head>', '<head>' + hypergen(template))
-        if '<html>' in html:
-            assert html.count('<html>') == 1, (
+            return html_output.replace('<head>', '<head>' + hypergen(template))
+        if '<html>' in html_output:
+            assert html_output.count('<html>') == 1, (
                 'Ooops, multiple <html> tags found. There can be only one!'
             )
-            return html.replace('<html>', '<html><head>' + hypergen(template) + '</head>')
-        return hypergen(template) + html
+            return html_output.replace('<html>', '<html><head>' + hypergen(template) + '</head>')
+        return hypergen(template) + html_output
 
 
 class ActionPlugin(LiveviewPluginBase):
-    def __init__(self, target_id=None, base_view=None, morph=True, prepend_commands=True):
+    def __init__(
+        self,
+        target_id: str | None = None,
+        base_view: Callable[..., Any] | None = None,
+        morph: bool = True,
+        prepend_commands: bool = True,
+    ) -> None:
         self.target_id = target_id
         self.base_view = base_view
         self.morph = morph
@@ -239,7 +282,7 @@ class ActionPlugin(LiveviewPluginBase):
         ):
             yield
 
-    def template_after(self, **kwargs):
+    def template_after(self, **kwargs: Any) -> None:
         extra_target_contexts = {}
         if self.base_view:
             referer_resolver_match = liveview_resolver_match(for_action=True)
@@ -276,7 +319,7 @@ class ActionPlugin(LiveviewPluginBase):
             c.hypergen.commands.extend(commands)
 
 
-def command(javascript_func_path, *args, **kwargs):
+def command(javascript_func_path: str, *args: Any, **kwargs: Any):
     prepend = kwargs.pop('prepend', False)
     return_ = kwargs.pop('return_', False)
     item = [javascript_func_path, *args]
@@ -289,19 +332,19 @@ def command(javascript_func_path, *args, **kwargs):
 
 
 def callback(
-    url,
-    *cb_args,
-    debounce=0,
-    confirm_=False,
-    confirm=False,
-    blocks=False,
-    upload_files=False,
-    clear=False,
-    headers=None,
-    meta=None,
-    when=None,
-    each_url_blocks=True,
-    timeout=20000,
+    url: Any,
+    *cb_args: Any,
+    debounce: int = 0,
+    confirm_: bool = False,
+    confirm: bool = False,
+    blocks: bool = False,
+    upload_files: bool = False,
+    clear: bool = False,
+    headers: dict[str, Any] | None = None,
+    meta: dict[str, Any] | None = None,
+    when: Any = None,
+    each_url_blocks: bool = True,
+    timeout: int = 20000,
 ):
     meta = meta or {}
     headers = headers or {}
@@ -313,8 +356,8 @@ def callback(
     if getattr(url, 'supports_hypergen_callback', False) is True:
         url = url.reverse()
 
-    def to_html(element, key, value):
-        def fix_this(x):
+    def to_html(element: base_element, key: str, value: Any):
+        def fix_this(x: Any) -> Any:
             return element if x is THIS else x
 
         element.ensure_id()
@@ -322,19 +365,19 @@ def callback(
             'hypergen.callback',
             url,
             [fix_this(x) for x in cb_args],
-            dict(
-                debounce=debounce,
-                confirm_=confirm_,
-                blocks=blocks,
-                uploadFiles=upload_files,
-                clear=clear,
-                elementId=element.attrs['id_'],
-                debug=current_app.debug if has_app_context() else False,
-                meta=meta,
-                headers=headers,
-                eachUrlBlocks=each_url_blocks,
-                timeout=timeout,
-            ),
+            {
+                'debounce': debounce,
+                'confirm_': confirm_,
+                'blocks': blocks,
+                'uploadFiles': upload_files,
+                'clear': clear,
+                'elementId': element.attrs['id_'],
+                'debug': current_app.debug if has_app_context() else False,
+                'meta': meta,
+                'headers': headers,
+                'eachUrlBlocks': each_url_blocks,
+                'timeout': timeout,
+            },
             return_=True,
         )
         cmd_id = f'{element.attrs["id_"]}__{key}'
@@ -344,26 +387,26 @@ def callback(
 
     signature = {
         key: value
-        for key, value in dict(
-            debounce=debounce,
-            confirm_=confirm_,
-            blocks=blocks,
-            upload_files=upload_files,
-            clear=clear,
-            meta=meta,
-            when=when,
-            eachUrlBlocks=each_url_blocks,
-            timeout=timeout,
-        ).items()
+        for key, value in {
+            'debounce': debounce,
+            'confirm_': confirm_,
+            'blocks': blocks,
+            'upload_files': upload_files,
+            'clear': clear,
+            'meta': meta,
+            'when': when,
+            'eachUrlBlocks': each_url_blocks,
+            'timeout': timeout,
+        }.items()
         if value
     }
     to_html.hypergen_callback_signature = 'callback', (url, *cb_args), signature
     return to_html
 
 
-def call_js(command_path, *cb_args):
-    def to_html(element, key, value):
-        def fix_this(x):
+def call_js(command_path: str, *cb_args: Any):
+    def to_html(element: base_element, key: str, value: Any):
+        def fix_this(x: Any) -> Any:
             return element if x is THIS else x
 
         element.ensure_id()
@@ -375,11 +418,11 @@ def call_js(command_path, *cb_args):
     return to_html
 
 
-def json_commands_response(commands, status=200):
+def json_commands_response(commands: Any, status: int = 200) -> Response:
     return Response(dumps(commands), status=status, mimetype='application/json')
 
 
-def _is_redirect_response(response):
+def _is_redirect_response(response: Any) -> bool:
     return (
         isinstance(response, Response) and 300 <= response.status_code < 400 and response.location
     )
@@ -413,13 +456,10 @@ def liveview(
     original_func = func
     user_plugins = user_plugins or []
 
-    def namespace():
-        return getattr(_, 'hypergen_endpoint', getattr(_, '__name__', 'hypergen'))
-
     @wraps(func)
     def _(*args, **kwargs):
         request = flask_request
-        ok, response_redirect, matched_perms = check_perms(
+        perm_check = check_perms(
             request,
             perm,
             login_url=login_url,
@@ -427,12 +467,12 @@ def liveview(
             any_perm=any_perm,
             redirect_field_name=redirect_field_name,
         )
-        if ok is not True:
-            return response_redirect
+        if not perm_check.ok:
+            return perm_check.response
         if partial and _request_header(request, 'X-Hypergen-Partial') == '1':
             with c(
                 at='hypergen',
-                matched_perms=matched_perms,
+                matched_perms=perm_check.matched_perms,
                 partial_base_template=partial_base_template,
                 liveview_resolver_match=liveview_resolver_match(),
             ):
@@ -441,25 +481,22 @@ def liveview(
                     request,
                     *args,
                     **kwargs,
-                    settings=dict(
-                        action=True,
-                        returns=FULL,
-                        target_id=target_id,
-                        appstate=appstate,
-                        namespace=namespace(),
-                        prepend_commands=False,
-                        user_plugins=user_plugins,
-                    ),
+                    settings={
+                        'action': True,
+                        'returns': FULL,
+                        'target_id': target_id,
+                        'appstate': appstate,
+                        'namespace': namespace_resolve(_),
+                        'prepend_commands': False,
+                        'user_plugins': user_plugins,
+                    },
                 )
                 if _is_redirect_response(full['template_result']):
-                    return json_commands_response(
-                        [['hypergen.redirect', full['template_result'].location]],
-                        status=302,
-                    )
+                    return callback_redirect_response(full['template_result'])
                 return json_commands_response(full['context'].hypergen.commands)
         with c(
             at='hypergen',
-            matched_perms=matched_perms,
+            matched_perms=perm_check.matched_perms,
             partial_base_template=partial_base_template,
             liveview_resolver_match=liveview_resolver_match(),
         ):
@@ -468,14 +505,14 @@ def liveview(
                 request,
                 *args,
                 **kwargs,
-                settings=dict(
-                    liveview=True,
-                    returns=FULL,
-                    base_template=base_template,
-                    appstate=appstate,
-                    namespace=namespace(),
-                    user_plugins=user_plugins,
-                ),
+                settings={
+                    'liveview': True,
+                    'returns': FULL,
+                    'base_template': base_template,
+                    'appstate': appstate,
+                    'namespace': namespace_resolve(_),
+                    'user_plugins': user_plugins,
+                },
             )
             if isinstance(full['template_result'], Response):
                 return full['template_result']
@@ -522,13 +559,10 @@ def action(
     partial_base_template = base_template if partial else None
     user_plugins = user_plugins or []
 
-    def namespace():
-        return getattr(_, 'hypergen_endpoint', getattr(_, '__name__', 'hypergen'))
-
     @wraps(func)
     def _(*args, **kwargs):
         request = flask_request
-        ok, response_redirect, matched_perms = check_perms(
+        perm_check = check_perms(
             request,
             perm,
             login_url=login_url,
@@ -536,17 +570,14 @@ def action(
             any_perm=any_perm,
             redirect_field_name=redirect_field_name,
         )
-        if ok is not True:
-            if _is_redirect_response(response_redirect):
-                return json_commands_response(
-                    [['hypergen.redirect', response_redirect.location]],
-                    status=response_redirect.status_code,
-                )
-            return response_redirect or Response(status=403)
+        if not perm_check.ok:
+            if _is_redirect_response(perm_check.response):
+                return callback_redirect_response(perm_check.response)
+            return perm_check.response or Response(status=403)
         action_args = loads(request.form['hypergen_data'])['args']
         with c(
             at='hypergen',
-            matched_perms=matched_perms,
+            matched_perms=perm_check.matched_perms,
             partial_base_template=partial_base_template,
             liveview_resolver_match=liveview_resolver_match(for_action=True),
         ):
@@ -555,21 +586,18 @@ def action(
                 request,
                 *action_args,
                 **kwargs,
-                settings=dict(
-                    action=True,
-                    returns=FULL,
-                    target_id=target_id,
-                    appstate=appstate,
-                    namespace=namespace(),
-                    base_view=base_view,
-                    user_plugins=user_plugins,
-                ),
+                settings={
+                    'action': True,
+                    'returns': FULL,
+                    'target_id': target_id,
+                    'appstate': appstate,
+                    'namespace': namespace_resolve(_),
+                    'base_view': base_view,
+                    'user_plugins': user_plugins,
+                },
             )
             if _is_redirect_response(full['template_result']):
-                return json_commands_response(
-                    [['hypergen.redirect', full['template_result'].location]],
-                    status=302,
-                )
+                return callback_redirect_response(full['template_result'])
             if isinstance(full['template_result'], Response):
                 return full['template_result']
             if type(full['template_result']) is list:
@@ -604,7 +632,7 @@ def encoder(o):
     if issubclass(type(o), base_element):
         assert o.attrs.get('id_', False), 'Missing id_'
         return ['_', 'element_value', [o.js_value_func, o.js_coerce_func, o.attrs['id_']]]
-    fn = ENCODINGS.get(type(o), None)
+    fn = ENCODINGS.get(type(o))
     if fn:
         return fn(o)
     raise TypeError(f'{o!r} is not JSON serializable')
@@ -628,7 +656,7 @@ def decoder(o):
     if data is None or type(data) is not list or len(data) != 2:
         return o
     datatype, value = data
-    fn = DECODINGS.get(datatype, None)
+    fn = DECODINGS.get(datatype)
     if fn:
         return fn(value)
     raise Exception(f'Unknown datatype, {datatype}')
