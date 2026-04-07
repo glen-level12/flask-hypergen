@@ -7,6 +7,7 @@ import re
 from pyrsistent import pmap
 import pytest
 
+import flask_hypergen
 from flask_hypergen.context import context, context_middleware, contextlist
 from flask_hypergen.examples.common import make_base_template
 from flask_hypergen.hypergen import compare_funcs
@@ -33,6 +34,8 @@ def test_context():
     context.replace(request=Request(), user=User())
     assert context.request.user.id == 1
     assert 'request' in context
+    context['feature_flag'] = True
+    assert context.feature_flag is True
 
 
 def test_context_cm():
@@ -119,16 +122,66 @@ def test_element():
     with context(at='hypergen', **hypergen_context()):
         ul(li(li(y) for y in range(3, 4)) for _x in range(1, 2))
         assert normalized_html() == '<ul><li><li>3</li></li></ul>'
+    with context(at='hypergen', **hypergen_context()):
+        div([1, 2], div(1, 2, div(1, None, 2, ul([li(x) for x in range(1, 3)]))))
+        assert (
+            normalized_html()
+            == '<div>12<div>12<div>12<ul><li>1</li><li>2</li></ul></div></div></div>'
+        )
+    with context(at='hypergen', **hypergen_context()):
+        ul(
+            None,
+            [
+                li(None, (li(li(z) for z in range(1, 2)) for _y in range(3, 4)), None)
+                for _x in range(5, 6)
+            ],
+            None,
+        )
+        assert normalized_html() == '<ul><li><li><li>1</li></li></li></ul>'
 
 
 def test_live_element():
     with context(is_test=True):
+
+        @mock_hypergen_callback
+        def my_callback():
+            pass
+
         with context(is_test=True, at='hypergen', **hypergen_context()):
             div('hello world!', onclick=cb('my_url', 42), id_='i1')
             assert (
                 normalized_html()
                 == '<div onclick="hypergen.event(event, \'i1__onclick\')" id="i1">hello world!</div>'
             )
+        with context(is_test=True, at='hypergen', **hypergen_context()):
+            source = input_(name='a', id_='field-a')
+            input_(name='b', id_='field-b', onclick=cb(my_callback, source))
+            assert normalized_html() == (
+                '<input name="a" id="field-a"/><input name="b" id="field-b" '
+                'onclick="hypergen.event(event, \'field-b__onclick\')"/>'
+            )
+        with context(is_test=True, at='hypergen', **hypergen_context()):
+            message = textarea(placeholder='myplace', id_='message-input')
+            with div(class_='message'):
+                with div(class_='action-left'):
+                    span('Annullér', class_='clickable')
+                with div(class_='action-right'):
+                    span(
+                        'Send',
+                        class_='clickable',
+                        onclick=cb(my_callback, message),
+                        id_='send-message',
+                    )
+                div(message, class_='form form-write')
+            assert normalized_html() == (
+                '<div class="message"><div class="action-left"><span class="clickable">Annullér</span></div>'
+                '<div class="action-right"><span class="clickable" '
+                'onclick="hypergen.event(event, \'send-message__onclick\')" id="send-message">Send</span></div>'
+                '<div class="form form-write"><textarea placeholder="myplace" id="message-input"></textarea></div></div>'
+            )
+        with context(is_test=True, at='hypergen', **hypergen_context()):
+            input_(autofocus=True)
+            assert join_html(context.hypergen.into) == '<input autofocus/>'
 
 
 def test_live_element2():
@@ -209,6 +262,11 @@ def test_components2():
         with tr():
             td(comp1())
         assert normalized_html() == '<tr><td><input value="a"/></td></tr>'
+    with context(is_test=True, at='hypergen', **hypergen_context()):
+        with tr():
+            with td():
+                comp1()
+        assert normalized_html() == '<tr><td><input value="a"/></td></tr>'
 
 
 def test_js_value_func():
@@ -230,6 +288,8 @@ def test_js_value_func():
             assert (i.js_value_func, i.js_coerce_func) == ('a', 'hypergen.coerce.date')
             i = input_(js_value_func='a', type_='datetime-local')
             assert (i.js_value_func, i.js_coerce_func) == ('a', 'hypergen.coerce.datetime')
+            i = input_(js_value_func='a', type_='weidewokvocxkokwoekvd')
+            assert (i.js_value_func, i.js_coerce_func) == ('a', None)
 
         hypergen(template, settings=dict(action=True, target_id='foo'))
         hypergen(template, settings=dict(liveview=True, target_id='foo'))
@@ -321,9 +381,49 @@ def test_plugins():
         2,
         settings=dict(plugins=[TemplatePlugin(), LiveviewPlugin()], indent=True),
     )
-    assert html1.strip() == html2.strip()
-    assert '/flask_hypergen/static/hypergen.js' in html1
-    assert 'history.replaceState' in html1
+    expected_html = """
+<html>
+    <head>
+        <!--hypergen_liveview_media-->
+        <script src="/flask_hypergen/static/hypergen.js"></script>
+        <script type="application/json" id="hypergen-apply-commands-data">{"_":["deque",[["hypergen.setClientState","hypergen.eventHandlerCallbacks",{}],["history.replaceState",{"callback_url":"mock"},"","mock"]]]}</script>
+        <script>
+                hypergen.ready(() => hypergen.applyCommands(JSON.parse(document.getElementById(
+                    'hypergen-apply-commands-data').textContent, hypergen.reviver)))
+            </script>
+        <title>
+            2
+        </title>
+    </head>
+    <body>
+        <h1>
+            4
+        </h1>
+    </body>
+</html>
+""".strip()
+    assert html1.strip() == html2.strip() == expected_html
+
+
+def test_flask_hypergen_public_api():
+    exported = set(dir(flask_hypergen))
+    assert {
+        'ContextMiddleware',
+        'LOGIN_REQUIRED',
+        'NO_PERM_REQUIRED',
+        'TemplatePlugin',
+        'action',
+        'callback',
+        'command',
+        'context',
+        'context_init_app',
+        'context_middleware',
+        'contextlist',
+        'hypergen',
+        'init_app',
+        'liveview',
+        'route_register',
+    } <= exported
 
 
 def test_multilist():

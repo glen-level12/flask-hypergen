@@ -4,14 +4,12 @@ from functools import update_wrapper
 from html import escape
 import inspect
 import logging
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from flask import Flask, current_app, url_for
+from flask import Flask, Response, current_app, redirect, url_for
+from werkzeug.exceptions import Forbidden
 
-from flask_hypergen.context import context
-
-
-d = dict
+from flask_hypergen.context import context, user_resolve
 
 
 logger = logging.getLogger(__name__)
@@ -106,15 +104,64 @@ def check_perms(
     any_perm=False,
     redirect_field_name=None,
 ):
-    from flask_hypergen.liveview import NO_PERM_REQUIRED
+    from flask_hypergen.liveview import LOGIN_REQUIRED, NO_PERM_REQUIRED
 
     matched_perms = set()
     if perm == NO_PERM_REQUIRED:
         return True, None, matched_perms
     assert perm, 'perm= is required'
-    raise NotImplementedError(
-        'flask_hypergen permissions are not implemented yet. Use NO_PERM_REQUIRED for now.',
-    )
+
+    def auth_failure_response():
+        if raise_exception:
+            raise Forbidden()
+        login_target = login_url
+        if login_target is None:
+            login_manager = current_app.extensions.get('login_manager')
+            login_target = getattr(login_manager, 'login_view', None)
+        if not login_target:
+            return Response(status=403)
+        if not (str(login_target).startswith('/') or '://' in str(login_target)):
+            login_target = url_for(login_target)
+        redirect_name = redirect_field_name or 'next'
+        next_value = getattr(request, 'url', None) or getattr(request, 'path', '/')
+        split = urlsplit(login_target)
+        query = dict(parse_qsl(split.query, keep_blank_values=True))
+        query.setdefault(redirect_name, next_value)
+        return redirect(urlunsplit(split._replace(query=urlencode(query))))
+
+    def is_authenticated(user):
+        return bool(user and getattr(user, 'is_authenticated', False))
+
+    def has_perm(user, name):
+        checker = getattr(user, 'has_perm', None)
+        return checker(name) if checker else False
+
+    def has_perms(user, names):
+        checker = getattr(user, 'has_perms', None)
+        if checker:
+            return checker(names)
+        return all(has_perm(user, name) for name in names)
+
+    user = user_resolve(request) or getattr(context, 'user', None)
+    if perm == LOGIN_REQUIRED:
+        if is_authenticated(user):
+            return True, None, matched_perms
+        return False, auth_failure_response(), matched_perms
+
+    perms = (perm,) if isinstance(perm, str) else tuple(perm)
+    if not is_authenticated(user):
+        return False, auth_failure_response(), matched_perms
+    if any_perm is not True:
+        if has_perms(user, perms):
+            matched_perms = set(perms)
+            return True, None, matched_perms
+    else:
+        matched_perms = {name for name in perms if has_perm(user, name)}
+        if matched_perms:
+            return True, None, matched_perms
+    if raise_exception:
+        raise Forbidden()
+    return False, Response(status=403), matched_perms
 
 
 class metastr(str):
@@ -140,7 +187,7 @@ def _reverse_factory(func, endpoint, base_template=None):
             raise TypeError(f'Too many positional arguments for reverse() on {func.__name__}')
         params = dict(zip(param_names, view_args, strict=False))
         params.update(view_kwargs)
-        return metastr.make(url_for(endpoint, **params), d(base_template=base_template))
+        return metastr.make(url_for(endpoint, **params), {'base_template': base_template})
 
     _reverse.hypergen_endpoint = endpoint
     return _reverse
@@ -158,17 +205,19 @@ def autourls(module, namespace):
 
 
 def route_register(router, func, *, rule=None, methods=None, endpoint=None, base_template=None):
+    methods = list(methods or ['GET'])
     endpoint = endpoint or func.__name__
     qualified_endpoint = _qualified_endpoint(router, endpoint)
     func.reverse = _reverse_factory(func, qualified_endpoint, base_template=base_template)
     func.hypergen_endpoint = qualified_endpoint
+    func.supports_hypergen_callback = any(method.upper() == 'POST' for method in methods)
     _ENDPOINTS[qualified_endpoint] = func
     if router is not None:
         router.add_url_rule(
             rule or f'/{func.__name__}/',
             endpoint,
             func,
-            methods=list(methods or ['GET']),
+            methods=methods,
         )
     return func
 

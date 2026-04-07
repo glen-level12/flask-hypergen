@@ -10,6 +10,14 @@ from flask_hypergen.examples.app import create_app
 class User:
     pk = 1
     id = 1
+    is_authenticated = True
+    permissions = frozenset()
+
+    def has_perm(self, permission):
+        return permission in self.permissions
+
+    def has_perms(self, permissions):
+        return set(permissions) <= set(self.permissions)
 
 
 class Request:

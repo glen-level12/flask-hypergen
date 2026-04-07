@@ -11,6 +11,7 @@ from flask_hypergen.context import (
 from flask_hypergen.imports import *
 from flask_hypergen.liveview import (
     ASSETS_BLUEPRINT,
+    LOGIN_REQUIRED,
     NO_PERM_REQUIRED,
     action,
     callback,

@@ -264,17 +264,42 @@ Current direction:
 - Added adapted/copied Hypergen core tests, example request tests, and a Playwright e2e test under `tests/flask_hypergen_tests/`.
 - Added supporting dependencies during implementation/testing: `pyrsistent`, `yattag`, and `pytest-playwright`.
 
+## Review + follow-up implementation notes (2026-04-07)
+
+- Moved Flask Hypergen-specific dependencies into dedicated dependency groups in `pyproject.toml`:
+  - `flask-hypergen`
+  - `flask-hypergen-test`
+- Hooked the `pytest` dependency group up to include the Flask Hypergen runtime/test groups so the test env still installs what the library needs.
+- Implemented `Context.__setitem__` instead of leaving the confusing `Exception('TODO')` path.
+- Standardized the mixed action/liveview command access to attribute-style context access.
+- Removed the `d = dict` alias usage from the Flask Hypergen modules touched by the review.
+- Removed `tests/flask_hypergen_tests/test_dummy.py`.
+- Strengthened the ported core tests to restore the dropped Django Hypergen sub-cases and tighter assertions:
+  - `test_element`
+  - `test_live_element`
+  - `test_components2`
+  - `test_js_value_func`
+  - `test_plugins`
+- Added a public API export test for `flask_hypergen.__init__`.
+- Completed the auth/permission follow-up task by adding real Flask auth integration:
+  - added `LOGIN_REQUIRED`
+  - resolved users from Flask-Login when present
+  - support login-required and string/iterable permission checks via `has_perm` / `has_perms`
+  - action auth failures now return JSON redirect commands for Hypergen callbacks
+- Added a self-contained `auth` example demonstrating login, logout, authenticated liveviews, and permission-protected actions.
+- Completed the callback/reverse DevX follow-up by making `route_register(..., methods=['POST'])` mark explicit POST routes as callback-capable, and updated `hellocoreonly` to use function-based callback reverse wiring instead of raw `url_for()`.
+- Completed the `partialload` follow-up by porting a Flask `partialload` example and adding request + Playwright coverage for partial navigation/history behavior.
+- The wildcard-import `# ruff: noqa` suppressions remain in the ported/import-surface files as an intentional Hypergen-style tradeoff, but the public API test now gives cheap protection against import wiring regressions.
+
 ## Current status
 
 - `ruff check src/flask_hypergen tests/flask_hypergen_tests --ignore COM812` passes.
 - `ruff format src/flask_hypergen tests/flask_hypergen_tests` passes.
-- `pytest tests/flask_hypergen_tests -q` passes with `32 passed, 1 xfailed`.
+- `pytest tests/flask_hypergen_tests -q -ra` passes with `41 passed, 1 xfailed`.
 
 ## Open follow-up tasks
 
-- Implement real authentication/permission integration beyond `NO_PERM_REQUIRED`.
-- Improve callback/url reverse DevX beyond the current explicit-route / `url_for()`-sufficient milestone.
-- Port the `partialload` example next, now that the partial request flow and history command path exist.
+- None currently.
 
 
 ## Review Notes (by Gemini 3.1 Pro Preview)

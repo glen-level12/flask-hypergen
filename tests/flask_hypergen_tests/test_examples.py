@@ -1,3 +1,4 @@
+import flask_hypergen.examples.hellocoreonly as hellocoreonly
 from flask_hypergen.liveview import dumps
 
 
@@ -8,6 +9,7 @@ def test_example_routes_render(client):
         '/inputs/demo': 'Read values from the browser',
         '/commands/demo': 'Explicit command responses',
         '/apptemplate/counter': 'Context-manager base template',
+        '/partialload/page1': 'Partial loading with history support',
         '/sqlalchemy-counter/counter': 'SQLAlchemy-backed state',
     }
     for path, marker in checks.items():
@@ -25,6 +27,11 @@ def test_coreonly_increment_returns_commands(client):
     assert response.mimetype == 'application/json'
     assert 'hypergen.morph' in payload
     assert 'Counter value' in payload
+
+
+def test_coreonly_explicit_routes_support_function_reverse(app):
+    with app.test_request_context():
+        assert hellocoreonly.increment.reverse() == '/hellocoreonly/increment'
 
 
 def test_hypergen_increment_returns_commands(client):
@@ -90,3 +97,66 @@ def test_liveview_partial_get_returns_json_commands(client):
     assert response.status_code == 200
     assert response.mimetype == 'application/json'
     assert 'hypergen.morph' in response.get_data(as_text=True)
+
+
+def test_partialload_links_enable_partial_navigation(client):
+    response = client.get('/partialload/page1')
+    body = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert 'hypergen.partialLoad' in body
+    assert 'Current page: page1' in body
+
+
+def test_partialload_partial_get_returns_commands(client):
+    response = client.get('/partialload/page2', headers={'X-Hypergen-Partial': '1'})
+    body = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert response.mimetype == 'application/json'
+    assert 'hypergen.morph' in body
+    assert 'Current page: page2' in body
+
+
+def test_login_required_liveview_redirects_to_login(client):
+    response = client.get('/auth/protected')
+    assert response.status_code == 302
+    assert '/auth/login' in response.headers['Location']
+    assert 'next=' in response.headers['Location']
+
+
+def test_login_route_and_protected_liveview(client):
+    response = client.get('/auth/login?next=/auth/protected', follow_redirects=True)
+    body = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert 'This page requires an authenticated user.' in body
+    assert 'Signed in as editor' in body
+
+
+def test_permission_protected_liveview_returns_403_for_authenticated_user_without_perm(client):
+    client.get('/auth/login?user=viewer')
+    response = client.get('/auth/editor')
+    assert response.status_code == 403
+
+
+def test_permission_protected_action_redirects_when_logged_out(client):
+    response = client.post(
+        '/auth/update',
+        data={'hypergen_data': dumps({'args': ['Blocked']})},
+        headers={'Referer': 'http://localhost/auth/editor'},
+    )
+    payload = response.get_data(as_text=True)
+    assert response.status_code == 302
+    assert response.mimetype == 'application/json'
+    assert 'hypergen.redirect' in payload
+    assert '/auth/login' in payload
+
+
+def test_permission_protected_action_succeeds_when_authorized(client):
+    client.get('/auth/login?user=editor')
+    response = client.post(
+        '/auth/update',
+        data={'hypergen_data': dumps({'args': ['Updated by an editor']})},
+        headers={'Referer': 'http://localhost/auth/editor'},
+    )
+    payload = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert 'Updated by an editor' in payload

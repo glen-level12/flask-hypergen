@@ -18,9 +18,6 @@ from flask_hypergen.template import *
 from flask_hypergen.template import base_element, join_html
 
 
-d = dict
-
-
 __all__ = [
     'ASSETS_BLUEPRINT',
     'ActionPlugin',
@@ -28,6 +25,7 @@ __all__ = [
     'EVENT',
     'JS_COERCE_FUNCS',
     'JS_VALUE_FUNCS',
+    'LOGIN_REQUIRED',
     'LiveviewPlugin',
     'NO_PERM_REQUIRED',
     'THIS',
@@ -54,9 +52,10 @@ class EVENT:
     pass
 
 
+LOGIN_REQUIRED = '__LOGIN_REQUIRED__'
 NO_PERM_REQUIRED = '__NO_PERM_REQUIRED__'
 COERCE = {str: 'hypergen.coerce.str', int: 'hypergen.coerce.int', float: 'hypergen.coerce.float'}
-JS_VALUE_FUNCS = d(
+JS_VALUE_FUNCS = dict(
     checkbox='hypergen.read.checked',
     radio='hypergen.read.radio',
     file='hypergen.read.file',
@@ -209,7 +208,7 @@ class LiveviewPlugin(LiveviewPluginBase):
             c.hypergen.event_handler_callbacks,
         )
         path = _request_path(c.request)
-        command('history.replaceState', d(callback_url=path), '', path)
+        command('history.replaceState', dict(callback_url=path), '', path)
         if '<head>' in html:
             assert html.count('<head>') == 1, (
                 'Ooops, multiple <head> tags found. There can be only one!'
@@ -323,7 +322,7 @@ def callback(
             'hypergen.callback',
             url,
             [fix_this(x) for x in cb_args],
-            d(
+            dict(
                 debounce=debounce,
                 confirm_=confirm_,
                 blocks=blocks,
@@ -345,7 +344,7 @@ def callback(
 
     signature = {
         key: value
-        for key, value in d(
+        for key, value in dict(
             debounce=debounce,
             confirm_=confirm_,
             blocks=blocks,
@@ -442,7 +441,7 @@ def liveview(
                     request,
                     *args,
                     **kwargs,
-                    settings=d(
+                    settings=dict(
                         action=True,
                         returns=FULL,
                         target_id=target_id,
@@ -469,7 +468,7 @@ def liveview(
                 request,
                 *args,
                 **kwargs,
-                settings=d(
+                settings=dict(
                     liveview=True,
                     returns=FULL,
                     base_template=base_template,
@@ -488,7 +487,7 @@ def liveview(
         router,
         _,
         rule=rule,
-        methods=methods or ['GET'],
+        methods=methods or (['GET', 'POST'] if partial else ['GET']),
         endpoint=endpoint,
         base_template=base_template,
     )
@@ -529,9 +528,21 @@ def action(
     @wraps(func)
     def _(*args, **kwargs):
         request = flask_request
-        ok, __, matched_perms = check_perms(request, perm, any_perm=any_perm)
+        ok, response_redirect, matched_perms = check_perms(
+            request,
+            perm,
+            login_url=login_url,
+            raise_exception=raise_exception,
+            any_perm=any_perm,
+            redirect_field_name=redirect_field_name,
+        )
         if ok is not True:
-            return Response(status=403)
+            if _is_redirect_response(response_redirect):
+                return json_commands_response(
+                    [['hypergen.redirect', response_redirect.location]],
+                    status=response_redirect.status_code,
+                )
+            return response_redirect or Response(status=403)
         action_args = loads(request.form['hypergen_data'])['args']
         with c(
             at='hypergen',
@@ -544,7 +555,7 @@ def action(
                 request,
                 *action_args,
                 **kwargs,
-                settings=d(
+                settings=dict(
                     action=True,
                     returns=FULL,
                     target_id=target_id,
@@ -563,7 +574,7 @@ def action(
                 return full['template_result']
             if type(full['template_result']) is list:
                 return json_commands_response(full['template_result'])
-            return json_commands_response(full['context']['hypergen']['commands'])
+            return json_commands_response(full['context'].hypergen.commands)
 
     _.supports_hypergen_callback = True
     route_register(

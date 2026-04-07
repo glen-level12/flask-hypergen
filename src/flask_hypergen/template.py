@@ -16,9 +16,6 @@ from flask_hypergen.hypergen import *
 from flask_hypergen.plugins.appstate import AppstatePlugin
 
 
-d = dict
-
-
 try:
     import docutils.core
     import docutils.utils
@@ -119,7 +116,7 @@ def hypergen(template, *args, **kwargs):
                 return html
             if returns == COMMANDS:
                 return c.hypergen.commands
-            return d(html=html, context=c.clone(), template_result=template_result)
+            return {'html': html, 'context': c.clone(), 'template_result': template_result}
 
 
 def hypergen_to_response(func, *args, **kwargs):
@@ -166,19 +163,26 @@ def rst(restructured_text, report_level=None):
 def hprint(*args, **kwargs):
     @component
     def typeinfo(x):
-        span(' (', x.__class__.__module__, '.', type(x).__name__, ')', style=d(color='darkgrey'))
+        span(
+            ' (',
+            x.__class__.__module__,
+            '.',
+            type(x).__name__,
+            ')',
+            style={'color': 'darkgrey'},
+        )
 
     def fmt(x):
-        pre(code(pformat(x, width=120)), style=d())
+        pre(code(pformat(x, width=120)), style={})
 
     with div(
-        style=d(
-            padding='8px',
-            margin='4px 0 0 0',
-            background='#ffc',
-            color='black',
-            font_family='sans-serif',
-        ),
+        style={
+            'padding': '8px',
+            'margin': '4px 0 0 0',
+            'background': '#ffc',
+            'color': 'black',
+            'font_family': 'sans-serif',
+        },
     ):
         if len(args) == 1 and not kwargs:
             div(typeinfo(args[0]))

@@ -6,9 +6,6 @@ from flask import request as flask_request
 from pyrsistent import m, pmap
 
 
-d = dict
-
-
 __all__ = [
     'Context',
     'ContextMiddleware',
@@ -43,7 +40,7 @@ class Context(threading.local):
         return self.__dict__['ctx'][key]
 
     def __setitem__(self, key, value):
-        raise Exception('TODO')
+        self.ctx = self.ctx.set(key, value)
 
     def __contains__(self, key):
         return key in self.ctx
@@ -84,9 +81,23 @@ context = Context()
 c = context
 
 
+def user_resolve(request):
+    user = getattr(request, 'user', None)
+    if user is not None:
+        return user
+    try:
+        from flask_login import current_user
+    except ImportError:
+        return None
+    try:
+        return current_user._get_current_object()
+    except Exception:
+        return None
+
+
 def _init_context(request):
     values = {'request': request}
-    user = getattr(request, 'user', None)
+    user = user_resolve(request)
     if user is not None:
         values['user'] = user
     return values
@@ -110,11 +121,12 @@ def context_init_app(app):
         return
 
     @app.before_request
-    def _context_before_request():
+    def context_before_request():
         context.replace(**_init_context(flask_request))
 
     @app.teardown_request
-    def _context_teardown_request(_exc):
+    def context_teardown_request(exc):
+        del exc
         context.replace()
 
     app.extensions['flask_hypergen_context_init'] = True
