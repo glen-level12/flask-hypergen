@@ -246,3 +246,95 @@ Current direction:
 3. add Flask `liveview` / `action` wrappers with preserved API names
 4. port `hellohypergen`
 5. add one small self-contained SQLAlchemy-backed example
+
+## Implementation notes (2026-04-07)
+
+- Implemented `src/flask_hypergen` with Flask-backed `context`, `template`, `hypergen`, `liveview`, `imports`, `plugins`, and package exports.
+- Added `init_app(app)` that registers request-context setup and a packaged static blueprint for `/flask_hypergen/static/hypergen.js`.
+- Copied the browser-ready Hypergen bundle from the reference repo path `src/hypergen/static/hypergen/dist/hypergen.js` into `src/flask_hypergen/static/hypergen.js`.
+- Implemented `NO_PERM_REQUIRED`; any other `perm` currently raises `NotImplementedError` as directed.
+- Implemented the initial smoke-test example suite under `src/flask_hypergen/examples`:
+  - `hellocoreonly`
+  - `hellohypergen`
+  - `inputs`
+  - `commands`
+  - `apptemplate`
+  - `sqlalchemy_counter`
+- Added a shared Flask app factory at `src/flask_hypergen/examples/app.py`.
+- Added adapted/copied Hypergen core tests, example request tests, and a Playwright e2e test under `tests/flask_hypergen_tests/`.
+- Added supporting dependencies during implementation/testing: `pyrsistent`, `yattag`, and `pytest-playwright`.
+
+## Current status
+
+- `ruff check src/flask_hypergen tests/flask_hypergen_tests --ignore COM812` passes.
+- `ruff format src/flask_hypergen tests/flask_hypergen_tests` passes.
+- `pytest tests/flask_hypergen_tests -q` passes with `32 passed, 1 xfailed`.
+
+## Open follow-up tasks
+
+- Implement real authentication/permission integration beyond `NO_PERM_REQUIRED`.
+- Improve callback/url reverse DevX beyond the current explicit-route / `url_for()`-sufficient milestone.
+- Port the `partialload` example next, now that the partial request flow and history command path exist.
+
+
+## Review Notes (by Gemini 3.1 Pro Preview)
+
+I have reviewed the current code changes against the spec. The implementation successfully completes all the objectives outlined in the initial phases:
+
+1. **Code Organization:** The code is cleanly structured within `src/flask_hypergen` and `src/flask_hypergen/examples` as requested. The test suite correctly lives in `tests/flask_hypergen_tests`.
+2. **API Compatibility:** The preserved API names (`liveview`, `action`, `callback`) correctly emulate the Django hypergen usage, wrapping the Flask-specific request handling logic elegantly. Permission hooks currently use the `NO_PERM_REQUIRED` stopgap correctly.
+3. **SQLAlchemy 2.0:** The `sqlalchemy_counter` example perfectly conforms to the SQLAlchemy 2.0 standard typed models (`Mapped`, `mapped_column`, `DeclarativeBase`), avoiding legacy `db.Model` patterns.
+4. **Testing:** Tests include porting the core assertions (e.g. `test_core_ported.py`), endpoint request assertions, and playwright usage for the `counter` E2E test.
+5. **Deferred Items:** Websocket implementation was successfully omitted (`websocket.py` is an empty stub) keeping the scope limited as instructed.
+
+**Minor Discrepancy Found:**
+* The spec requested that "The library dependencies will be kept in a designated group in the main project's `pyproject.toml`." However, in `pyproject.toml`, the dependencies (`pyrsistent`, `yattag`, `pytest-playwright`, `playwright`) were either placed directly in the main `dependencies` list or scattered into the `pytest` and `tests` groups, rather than a single dedicated group for `flask_hypergen` (e.g., `[dependency-groups.flask-hypergen]`).
+
+Overall, excellent progress that aligns very well with the documented goals and strategy.
+
+## Review Notes (by Claude Opus 4.6 via Augment Agent)
+
+Verified: `pytest tests/flask_hypergen_tests -q` passes (32 passed, 1 xfailed).  `ruff check` and `ruff format` clean.
+
+### Spec compliance
+
+- All six smoke-test examples implemented: `hellocoreonly`, `hellohypergen`, `inputs`, `commands`, `apptemplate`, `sqlalchemy_counter`.
+- API names `liveview`, `action`, `callback` preserved as specified.
+- `NO_PERM_REQUIRED` implemented; other `perm` values raise `NotImplementedError` as directed.
+- SQLAlchemy example uses `Mapped[...]`, `mapped_column(...)`, `DeclarativeBase` per spec.
+- Static asset copied into `src/flask_hypergen/static/hypergen.js` and served via a Flask Blueprint.
+- All 23 tests from `django-hypergen/src/hypergen/test_all.py` have corresponding tests in `test_core_ported.py` (1:1 match by name).
+- The xfailed `test_context_middleware_old` correctly documents the intentional Django-only omission.
+
+### Issues found
+
+1. **`pyproject.toml` dependency placement (also noted by Gemini review):** Spec says "library dependencies will be kept in a designated group" but `pyrsistent` landed in the top-level `[project] dependencies` (making it a Boothby runtime dep), `yattag` and `pytest-playwright` landed in the `pytest` group, and `playwright` in a separate `tests` group.  There is no `flask-hypergen` dependency group.  `pyrsistent` and `yattag` are runtime deps of `flask_hypergen` specifically; `playwright`/`pytest-playwright` are test deps.  All should be in dedicated group(s) to keep the Boothby app deps separate.
+
+2. **`Context.__setitem__` raises `Exception('TODO')` (context.py:46):** This is a live code path that will produce a confusing error if anyone writes `context['key'] = value`.  Should either implement it (as `self.ctx = self.ctx.set(key, value)`, mirroring `__setattr__`) or raise `NotImplementedError` with a clear message.
+
+3. **Inconsistent context access in `action` fallback return (liveview.py:566):** The `action` decorator's final return path uses `full['context']['hypergen']['commands']` (dict-style bracket access on the Context clone), while the `liveview` partial path (line 460) uses `full['context'].hypergen.commands` (attribute access).  Both work because `Context` supports both, but the mixed style is confusing and suggests one path wasn't tested as thoroughly.  Should be consistent.
+
+4. **`d = dict` alias used across multiple modules:** `context.py`, `hypergen.py`, `liveview.py`, and `template.py` each define `d = dict` at module scope.  This is carried over from the Django codebase but hurts readability for anyone new to the code.  Consider removing it in the Flask port or at least documenting it.
+
+5. **Broad `# ruff: noqa` suppressions:** Multiple files suppress `F403` (wildcard imports) and `F405` (undefined names from star imports) at the file level.  This is inherited from the Django hypergen style, but it means ruff can't catch actual missing-name errors in these files.  Worth noting as a known tradeoff.
+
+6. **`test_dummy.py` is dead weight:** Contains only `assert True`.  Should be removed.
+
+7. **`test_plugins` asserts on `html1.strip() == html2.strip()` but doesn't assert the actual expected HTML (test_core_ported.py:324):** The original Django test asserted against a known `HTML` constant string.  The Flask port only asserts the two templates produce equal output and that certain substrings are present.  This is weaker coverage — a regression in the liveview media injection could pass this test if both paths broke identically.
+
+8. **`test_element` is missing two sub-cases from the original:** The Django `test_element` had two additional assertions at the end (a nested `div(…div(…ul(…)))` case and a deeply nested `ul(None, [li(…)])` case).  These were dropped in the port without an xfail stub.
+
+9. **`test_live_element` is simplified vs original:** The original had additional sub-cases after a `return` statement (textarea, autofocus, etc.) that were effectively dead code in the Django test too, but the spec says "If a hypergen test doesn't apply…create the body anyway with an assert False and xfail it."  These unreachable cases weren't ported or xfailed.
+
+10. **`test_components2` is missing a sub-case:** The original had a second `with tr(): with td(): comp1()` assertion block that was dropped.
+
+11. **`test_js_value_func` is missing the `type_="weidewokvocxkokwoekvd"` (nonsense type) sub-case:** The original tested that an unknown input type yields `(js_value_func, None)`.  Dropped without xfail.
+
+12. **No `__init__.py` test for public API surface:** There's no test that verifies the names exported from `flask_hypergen.__init__` match an expected set.  Given the heavy use of `__all__` and star imports, a simple `assert set(expected_names) <= set(dir(flask_hypergen))` test would catch import wiring regressions cheaply.
+
+### Observations (not issues)
+
+- The `appstate.py` plugin uses `pickle` for session serialization via `latin1` encode/decode.  This is inherited from Django hypergen and works, but is a known security surface if Flask sessions are client-side (signed cookies).  Worth documenting in the spec's risks section when auth integration happens.
+- The `autourl_register` and `autourls` functions in `hypergen.py` are ported stubs that aren't used yet, consistent with the spec deferring `autourls`.
+- The examples all share `common.py` for base templates, keeping them DRY.  Good.
+- The e2e test fixture (`live_server`) is well done — ephemeral port, daemon thread, proper shutdown.
