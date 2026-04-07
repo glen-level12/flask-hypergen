@@ -324,11 +324,18 @@ class ActionPlugin(LiveviewPluginBase):
 
     def template_after(self, **kwargs: Any) -> None:
         extra_target_contexts = {}
+        extra_event_handler_callbacks: dict[str, Any] = {}
         if self.base_view:
             referer_resolver_match = liveview_resolver_match(for_action=True)
             if referer_resolver_match is not None and referer_resolver_match.func is not None:
                 isolated_into = contextlist('target_id')
-                with c(at='hypergen', ids=set(), into=isolated_into, target_id=None):
+                with c(
+                    at='hypergen',
+                    ids=set(),
+                    into=isolated_into,
+                    target_id=None,
+                    event_handler_callbacks=extra_event_handler_callbacks,
+                ):
                     self.base_view.original_func(
                         c.request,
                         *referer_resolver_match.args,
@@ -343,7 +350,7 @@ class ActionPlugin(LiveviewPluginBase):
             [
                 'hypergen.setClientState',
                 'hypergen.eventHandlerCallbacks',
-                c.hypergen.event_handler_callbacks,
+                {**extra_event_handler_callbacks, **c.hypergen.event_handler_callbacks},
             ],
         ]
         if self.morph and 'into' in c.hypergen:

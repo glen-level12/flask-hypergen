@@ -4,6 +4,7 @@ from flask_hypergen.liveview import dumps
 
 def test_example_routes_render(client):
     checks = {
+        '/auth/': 'Authentication example',
         '/hellocoreonly/counter': 'Core-only wiring',
         '/hellohypergen/counter': 'Decorator wiring',
         '/inputs/demo': 'Read values from the browser',
@@ -18,6 +19,7 @@ def test_example_routes_render(client):
         assert response.status_code == 200
         assert marker in body
         assert '/flask_hypergen/static/hypergen.js' in body
+        assert 'Flask adapter example for django-hypergen.' not in body
 
 
 def test_example_index_lists_examples(client):
@@ -38,7 +40,7 @@ def test_example_index_lists_examples(client):
         '/commands/demo',
         '/apptemplate/counter',
         '/partialload/page1',
-        '/auth/protected',
+        '/auth/',
         '/sqlalchemy-counter/counter',
     ):
         assert f'href="{href}"' in body
@@ -68,6 +70,7 @@ def test_hypergen_increment_returns_commands(client):
     assert response.status_code == 200
     assert 'hypergen.morph' in payload
     assert 'Decorator wiring' in payload
+    assert '/hellohypergen/increment",[2]' in payload
 
 
 def test_inputs_submit_returns_summary(client):
@@ -79,6 +82,13 @@ def test_inputs_submit_returns_summary(client):
     payload = response.get_data(as_text=True)
     assert response.status_code == 200
     assert 'Ada is 37 years old and subscribed=True' in payload
+
+
+def test_inputs_demo_renders_non_empty_summary(client):
+    response = client.get('/inputs/demo')
+    body = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert '<p id="summary">Submit the form to see a summary.</p>' in body
 
 
 def test_commands_demo_returns_explicit_commands(client):
@@ -102,6 +112,7 @@ def test_apptemplate_increment_returns_commands(client):
     payload = response.get_data(as_text=True)
     assert response.status_code == 200
     assert 'Current value: 2' in payload
+    assert '/apptemplate/increment",[2]' in payload
 
 
 def test_sqlalchemy_counter_persists(client):
@@ -153,6 +164,25 @@ def test_login_route_and_protected_liveview(client):
     assert response.status_code == 200
     assert 'This page requires an authenticated user.' in body
     assert 'Signed in as editor' in body
+
+
+def test_auth_demo_starts_unauthenticated(client):
+    response = client.get('/auth/')
+    body = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert 'Start here unauthenticated' in body
+    assert 'Authenticate as editor' in body
+    assert 'Signed in as editor' not in body
+
+
+def test_logout_returns_to_public_auth_example(client):
+    client.get('/auth/login?user=editor')
+    response = client.get('/auth/logout', follow_redirects=True)
+    body = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert 'Start here unauthenticated' in body
+    assert 'Authenticate as editor' in body
+    assert 'Signed in as editor' not in body
 
 
 def test_permission_protected_liveview_returns_403_for_authenticated_user_without_perm(client):

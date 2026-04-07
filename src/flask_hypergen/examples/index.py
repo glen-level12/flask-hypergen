@@ -76,8 +76,8 @@ EXAMPLES: tuple[ExampleCard, ...] = (
     ),
     ExampleCard(
         'Auth',
-        'auth.protected',
-        'Walk through the Flask-Login example with protected liveviews and actions.',
+        'auth.demo',
+        'Start unauthenticated, then sign in to try the protected Flask-Login example.',
         'Auth',
     ),
     ExampleCard(

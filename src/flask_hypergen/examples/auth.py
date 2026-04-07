@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from flask import Blueprint, abort, redirect, request, url_for
 from flask_login import UserMixin, current_user, login_user, logout_user
 
-from flask_hypergen import LOGIN_REQUIRED, action, callback, liveview
+from flask_hypergen import LOGIN_REQUIRED, NO_PERM_REQUIRED, action, callback, liveview
 from flask_hypergen.examples.common import make_base_template
 from flask_hypergen.tags import a, button, h2, p
 
@@ -50,6 +50,30 @@ def protected_template(message: str, *, show_action: bool = False) -> None:
         )
 
 
+def auth_template() -> None:
+    h2('Authentication example')
+    if current_user.is_authenticated:
+        p(f'Signed in as {current_user.id}', id_='auth-status')
+        p(a('Open protected view', href=url_for('auth.protected')))
+        p(a('Open editor view', href=url_for('auth.editor')))
+        p(a('Log out', href=url_for('auth.logout')))
+        return
+    p('Start here unauthenticated, then choose a user to explore the protected views.')
+    p(a('Authenticate as editor', href=url_for('auth.login', next=url_for('auth.protected'))))
+    p(
+        a(
+            'Authenticate as viewer',
+            href=url_for('auth.login', user='viewer', next=url_for('auth.protected')),
+        ),
+    )
+    p(a('Try the editor-only view', href=url_for('auth.login', next=url_for('auth.editor'))))
+
+
+@liveview(bp, '/', perm=NO_PERM_REQUIRED, base_template=BASE_TEMPLATE)
+def demo(request) -> None:
+    auth_template()
+
+
 @bp.get('/login')
 def login():
     user = user_load(request.args.get('user', 'editor'))
@@ -62,7 +86,7 @@ def login():
 @bp.get('/logout')
 def logout():
     logout_user()
-    return redirect(url_for('auth.login'))
+    return redirect(url_for('auth.demo'))
 
 
 @liveview(

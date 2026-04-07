@@ -23,6 +23,8 @@ def test_counter_e2e(page, live_server):
     expect(page.locator('#n')).to_have_value('0')
     page.locator('#increment').click()
     expect(page.locator('#n')).to_have_value('1')
+    page.locator('#increment').click()
+    expect(page.locator('#n')).to_have_value('2')
 
 
 def test_partialload_history_e2e(page, live_server):

@@ -44,7 +44,7 @@ def make_base_template(title_text: str) -> BaseTemplateFactory:
             with head():
                 page_head(title_text)
             with body():
-                header(h1(title_text), p('Flask adapter example for django-hypergen.'))
+                header(h1(title_text))
                 with main(id_='content'):
                     yield
 
