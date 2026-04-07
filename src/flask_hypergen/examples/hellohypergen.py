@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from flask import Blueprint
 
-from flask_hypergen import NO_PERM_REQUIRED, action, callback, h2, liveview, p
+from flask_hypergen import NO_PERM_REQUIRED, action, callback, liveview
 from flask_hypergen.examples.common import counter_fragment, make_base_template
+from flask_hypergen.tags import h2, p
 
 
 bp = Blueprint('hellohypergen', __name__, url_prefix='/hellohypergen')

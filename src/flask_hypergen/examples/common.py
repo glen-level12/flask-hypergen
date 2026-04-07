@@ -3,11 +3,11 @@ from __future__ import annotations
 from contextlib import ContextDecorator, contextmanager
 from typing import Protocol, cast
 
-from flask_hypergen import (
+from flask_hypergen import doctype
+from flask_hypergen.tags import (
     body,
     button,
     div,
-    doctype,
     h1,
     head,
     header,

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from flask import Blueprint
 
-from flask_hypergen import NO_PERM_REQUIRED, action, button, callback, command, div, h2, liveview, p
+from flask_hypergen import NO_PERM_REQUIRED, action, callback, command, liveview
 from flask_hypergen.examples.common import make_base_template
+from flask_hypergen.tags import button, div, h2, p
 
 
 bp = Blueprint('commands', __name__, url_prefix='/commands')

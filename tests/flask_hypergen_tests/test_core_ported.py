@@ -11,23 +11,30 @@ from flask_hypergen import (
     FULL,
     LOGIN_REQUIRED,
     THIS,
-    a,
-    body,
     call_js,
     check_perms,
     command,
     component,
-    div,
     doctype,
     dumps,
+    hypergen,
+    loads,
+)
+from flask_hypergen.context import context, context_middleware, contextlist
+from flask_hypergen.examples.common import make_base_template
+from flask_hypergen.hypergen import compare_funcs
+from flask_hypergen.liveview import LiveviewPlugin
+from flask_hypergen.liveview import callback as cb
+from flask_hypergen.tags import (
+    a,
+    body,
+    div,
     h1,
     h2,
     head,
     html,
-    hypergen,
     input_,
     li,
-    loads,
     p,
     span,
     td,
@@ -36,11 +43,6 @@ from flask_hypergen import (
     tr,
     ul,
 )
-from flask_hypergen.context import context, context_middleware, contextlist
-from flask_hypergen.examples.common import make_base_template
-from flask_hypergen.hypergen import compare_funcs
-from flask_hypergen.liveview import LiveviewPlugin
-from flask_hypergen.liveview import callback as cb
 from flask_hypergen.template import TemplatePlugin, join_html
 
 from .conftest import (

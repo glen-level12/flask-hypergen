@@ -6,14 +6,13 @@ from flask_hypergen import (
     COMMANDS,
     HypergenResult,
     callback,
-    h2,
     hypergen,
     json_commands_response,
     loads,
-    p,
     route_register,
 )
 from flask_hypergen.examples.common import counter_fragment, make_base_template
+from flask_hypergen.tags import h2, p
 
 
 bp = Blueprint('hellocoreonly', __name__, url_prefix='/hellocoreonly')
@@ -34,10 +33,7 @@ def counter() -> Response:
         settings={'liveview': True, 'base_template': BASE_TEMPLATE},
     )
     assert isinstance(html, str)
-    return Response(
-        html,
-        mimetype='text/html',
-    )
+    return Response(html, mimetype='text/html')
 
 
 @bp.post('/increment')

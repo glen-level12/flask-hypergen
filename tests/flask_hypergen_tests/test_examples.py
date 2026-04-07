@@ -20,6 +20,30 @@ def test_example_routes_render(client):
         assert '/flask_hypergen/static/hypergen.js' in body
 
 
+def test_example_index_lists_examples(client):
+    response = client.get('/')
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'Flask-Hypergen Examples' in body
+    assert '<table' in body
+    assert '<th>Link</th>' not in body
+    assert 'pico.azure.min.css' in body
+    assert '><a href="/hellocoreonly/counter">Hello Core Only</a></td>' in body
+
+    for href in (
+        '/hellocoreonly/counter',
+        '/hellohypergen/counter',
+        '/inputs/demo',
+        '/commands/demo',
+        '/apptemplate/counter',
+        '/partialload/page1',
+        '/auth/protected',
+        '/sqlalchemy-counter/counter',
+    ):
+        assert f'href="{href}"' in body
+
+
 def test_coreonly_increment_returns_commands(client):
     response = client.post('/hellocoreonly/increment', data={'hypergen_data': dumps({'args': [1]})})
     payload = response.get_data(as_text=True)

@@ -2,20 +2,9 @@ from __future__ import annotations
 
 from flask import Blueprint
 
-from flask_hypergen import (
-    NO_PERM_REQUIRED,
-    action,
-    button,
-    callback,
-    div,
-    h2,
-    input_,
-    label,
-    liveview,
-    p,
-    span,
-)
+from flask_hypergen import NO_PERM_REQUIRED, action, callback, liveview
 from flask_hypergen.examples.common import make_base_template
+from flask_hypergen.tags import button, div, h2, input_, label, p, span
 
 
 bp = Blueprint('inputs', __name__, url_prefix='/inputs')

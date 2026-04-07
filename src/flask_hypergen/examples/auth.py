@@ -6,8 +6,9 @@ from dataclasses import dataclass, field
 from flask import Blueprint, abort, redirect, request, url_for
 from flask_login import UserMixin, current_user, login_user, logout_user
 
-from flask_hypergen import LOGIN_REQUIRED, a, action, button, callback, h2, liveview, p
+from flask_hypergen import LOGIN_REQUIRED, action, callback, liveview
 from flask_hypergen.examples.common import make_base_template
+from flask_hypergen.tags import a, button, h2, p
 
 
 bp = Blueprint('auth', __name__, url_prefix='/auth')
@@ -75,13 +76,7 @@ def protected(request) -> None:
     protected_template('This page requires an authenticated user.')
 
 
-@liveview(
-    bp,
-    '/editor',
-    perm='examples.edit',
-    base_template=BASE_TEMPLATE,
-    login_url='auth.login',
-)
+@liveview(bp, '/editor', perm='examples.edit', base_template=BASE_TEMPLATE, login_url='auth.login')
 def editor(request) -> None:
     protected_template('This page requires the examples.edit permission.', show_action=True)
 

@@ -4,8 +4,9 @@ from typing import Protocol
 
 from flask import Blueprint
 
-from flask_hypergen import NO_PERM_REQUIRED, a, div, h2, liveview, p
+from flask_hypergen import NO_PERM_REQUIRED, liveview
 from flask_hypergen.examples.common import make_base_template
+from flask_hypergen.tags import a, div, h2, p
 
 
 bp = Blueprint('partialload', __name__, url_prefix='/partialload')
@@ -18,11 +19,7 @@ class ReversibleView(Protocol):
     def reverse(self) -> str: ...
 
 
-def page_template(
-    page_name: str,
-    first_link: ReversibleView,
-    second_link: ReversibleView,
-) -> None:
+def page_template(page_name: str, first_link: ReversibleView, second_link: ReversibleView) -> None:
     h2('Partial loading with history support')
     p('This example demonstrates shared base-template navigation with browser history support.')
     p(f'Current page: {page_name}', id_='partial-page')

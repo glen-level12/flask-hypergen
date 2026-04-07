@@ -7,6 +7,7 @@ import flask_hypergen.examples.auth as auth
 import flask_hypergen.examples.commands as commands
 import flask_hypergen.examples.hellocoreonly as hellocoreonly
 import flask_hypergen.examples.hellohypergen as hellohypergen
+import flask_hypergen.examples.index as index
 import flask_hypergen.examples.inputs as inputs
 import flask_hypergen.examples.partialload as partialload
 from flask_hypergen.examples.sqlalchemy_counter import default_database_url
@@ -26,6 +27,7 @@ def create_app(testing: bool = False, database_url: str | None = None) -> Flask:
         return auth.user_load(user_id)
 
     app.register_blueprint(auth.bp)
+    app.register_blueprint(index.bp)
     app.register_blueprint(hellocoreonly.bp)
     app.register_blueprint(hellohypergen.bp)
     app.register_blueprint(inputs.bp)
