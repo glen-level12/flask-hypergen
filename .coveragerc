@@ -1,0 +1,13 @@
+# .coveragerc to control coverage.py
+[run]
+branch = True
+omit =
+    src/flask_hypergen/version.py
+
+source =
+    src/flask_hypergen
+    tests/flask_hypergen_tests
+
+
+[html]
+directory = tmp/coverage-html
