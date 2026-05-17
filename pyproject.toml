@@ -14,6 +14,13 @@ authors = [
 requires-python = '>=3.11'
 dynamic = ['version']
 readme = 'readme.md'
+dependencies = [
+    "flask>=3.1.3",
+    "flask-login>=0.6.3",
+    "pyrsistent>=0.20.0",
+    "sqlalchemy>=2.0.49",
+    "yattag>=1.16.1",
+]
 
 
 [dependency-groups]
@@ -28,8 +35,10 @@ dev = [
 ]
 # Used by nox
 pytest = [
+    "playwright>=1.59.0",
     'pytest',
     'pytest-cov',
+    "pytest-playwright>=0.7.2",
 ]
 # Used by nox
 prek = [
