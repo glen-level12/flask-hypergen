@@ -6,6 +6,7 @@ from pyrsistent import pmap
 import pytest
 from werkzeug.exceptions import Forbidden
 
+from examples.common import make_base_template
 import flask_hypergen
 from flask_hypergen import (
     FULL,
@@ -21,7 +22,6 @@ from flask_hypergen import (
     loads,
 )
 from flask_hypergen.context import context, context_middleware, contextlist
-from flask_hypergen.examples.common import make_base_template
 from flask_hypergen.hypergen import compare_funcs
 from flask_hypergen.liveview import LiveviewPlugin
 from flask_hypergen.liveview import callback as cb

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from flask import Blueprint, Response, request
 
+from examples.common import counter_fragment, make_base_template
 from flask_hypergen import (
     COMMANDS,
     HypergenResult,
@@ -11,7 +12,6 @@ from flask_hypergen import (
     loads,
     route_register,
 )
-from flask_hypergen.examples.common import counter_fragment, make_base_template
 from flask_hypergen.tags import h2, p
 
 

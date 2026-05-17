@@ -1,17 +1,17 @@
 from flask import Flask
 from flask_login import LoginManager
 
+import examples.apptemplate as apptemplate
+import examples.auth as auth
+import examples.commands as commands
+import examples.hellocoreonly as hellocoreonly
+import examples.hellohypergen as hellohypergen
+import examples.index as index
+import examples.inputs as inputs
+import examples.partialload as partialload
+from examples.sqlalchemy_counter import default_database_url
+from examples.sqlalchemy_counter import make_blueprint as make_sqlalchemy_blueprint
 from flask_hypergen import init_app
-import flask_hypergen.examples.apptemplate as apptemplate
-import flask_hypergen.examples.auth as auth
-import flask_hypergen.examples.commands as commands
-import flask_hypergen.examples.hellocoreonly as hellocoreonly
-import flask_hypergen.examples.hellohypergen as hellohypergen
-import flask_hypergen.examples.index as index
-import flask_hypergen.examples.inputs as inputs
-import flask_hypergen.examples.partialload as partialload
-from flask_hypergen.examples.sqlalchemy_counter import default_database_url
-from flask_hypergen.examples.sqlalchemy_counter import make_blueprint as make_sqlalchemy_blueprint
 
 
 def create_app(testing: bool = False, database_url: str | None = None) -> Flask:

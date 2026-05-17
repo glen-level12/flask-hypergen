@@ -1,6 +1,21 @@
 # flask-hypergen
 [![nox](https://github.com/level12/flask-hypergen/actions/workflows/nox.yaml/badge.svg)](https://github.com/level12/flask-hypergen/actions/workflows/nox.yaml)
 
+Flask integration for Hypergen, with a repo-root `examples/` app for local development.
+
+## Run the examples
+
+1. Sync the dev environment:
+
+   `uv sync`
+
+2. Start the example app:
+
+   `flask --app examples/app.py run --debug`
+
+3. Open `http://127.0.0.1:5000/`
+
+
 ## Dev
 
 

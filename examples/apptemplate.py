@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from flask import Blueprint
 
+from examples.common import make_base_template
 from flask_hypergen import NO_PERM_REQUIRED, action, callback, liveview
-from flask_hypergen.examples.common import make_base_template
 from flask_hypergen.tags import button, h2, p
 
 

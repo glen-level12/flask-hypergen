@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 from flask import Blueprint, abort, redirect, request, url_for
 from flask_login import UserMixin, current_user, login_user, logout_user
 
+from examples.common import make_base_template
 from flask_hypergen import LOGIN_REQUIRED, NO_PERM_REQUIRED, action, callback, liveview
-from flask_hypergen.examples.common import make_base_template
 from flask_hypergen.tags import a, button, h2, p
 
 

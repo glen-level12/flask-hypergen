@@ -16,15 +16,14 @@ dynamic = ['version']
 readme = 'readme.md'
 dependencies = [
     "flask>=3.1.3",
-    "flask-login>=0.6.3",
     "pyrsistent>=0.20.0",
-    "sqlalchemy>=2.0.49",
     "yattag>=1.16.1",
 ]
 
 
 [dependency-groups]
 dev = [
+    {include-group = "examples"},
     {include-group = "pytest"},
     {include-group = "prek"},
     {include-group = "audit"},
@@ -35,6 +34,7 @@ dev = [
 ]
 # Used by nox
 pytest = [
+    {include-group = "examples"},
     "playwright>=1.59.0",
     'pytest',
     'pytest-cov',
@@ -51,4 +51,8 @@ audit = [
 # Used by CI
 nox = [
     'nox',
+]
+examples = [
+    "flask-login>=0.6.3",
+    "sqlalchemy>=2.0.49",
 ]

@@ -7,8 +7,8 @@ from flask import Flask
 from flask.testing import FlaskClient
 import pytest
 
+from examples.app import create_app
 from flask_hypergen.context import context, contextlist
-from flask_hypergen.examples.app import create_app
 
 
 class User:

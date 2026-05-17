@@ -10,7 +10,12 @@ warnings.  So this file remains a filesystem level above the "real" conftest.py 
 imports.
 """
 
+from pathlib import Path
+import sys
 import warnings
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 # Treat any warning issued in a test as an exception so we are forced to explicitly handle or

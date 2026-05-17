@@ -1,4 +1,4 @@
-import flask_hypergen.examples.hellocoreonly as hellocoreonly
+import examples.hellocoreonly as hellocoreonly
 from flask_hypergen.liveview import dumps
 
 

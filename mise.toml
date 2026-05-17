@@ -52,3 +52,10 @@ run = [
     'uv sync --upgrade',
     'prek auto-update',
 ]
+
+[tasks.examples-run]
+description = 'Run examples app'
+dir = "{{ config_root }}/examples"
+run = [
+    'flask run --debug || true',
+]

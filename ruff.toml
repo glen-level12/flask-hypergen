@@ -89,4 +89,5 @@ inline-quotes = 'single'
 [lint.isort]
 lines-after-imports = 2
 force-sort-within-sections = true
+known-first-party = ['examples']
 known-local-folder = ['src', 'tests']
