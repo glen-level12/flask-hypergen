@@ -39,3 +39,9 @@ Exceptions to the permission policies:
 
 UNLESS it's a `*.py` file, prefer dashes (`-`) in file paths and names instead of
 underscores.
+
+# Hypergen Reference
+
+- Find the original Django Hypergen reference files at: `~/projects/django-hypergen`
+- Use that repo as a read-only reference when porting or verifying Hypergen behavior.
+- In this repo, the runnable example app lives in `./examples`.
