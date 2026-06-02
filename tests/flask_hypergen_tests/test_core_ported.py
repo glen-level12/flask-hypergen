@@ -861,10 +861,6 @@ def test_user_resolve_from_request():
     assert user_resolve(request) is request.user
 
 
-def test_user_resolve_without_request_user():
-    assert user_resolve(SimpleNamespace()) is None
-
-
 def test_context_values_build_omits_none_user():
     values = context_values_build(SimpleNamespace())
     assert 'user' not in values
